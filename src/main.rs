@@ -27,9 +27,13 @@ struct Cli {
     #[clap(short, long, value_parser)]
     output_file: String,
 
-    /// Use vParition capacity
-    #[clap(short, long, action, default_value_t = true)]
-    use_vpartition: bool,
+    /// Print converted data
+    #[clap(short, long, action, default_value_t = false)]
+    print: bool,
+
+    /// Don't use vPartition capacity
+    #[clap(short, long, action, default_value_t = false)]
+    do_not_use_vpartition: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -152,7 +156,7 @@ fn main() -> Result<()> {
 
     let mut combined: Vec<Vinfo> = Vec::new();
 
-    if cli.use_vpartition {
+    if !cli.do_not_use_vpartition {
         for i in &info_vec {
             let mut found_match = false;
             for j in &grouped {
@@ -199,22 +203,22 @@ fn main() -> Result<()> {
             })
         });
 
-    datacenters
-        .iter()
-        .sorted_by(|a, b| a.capacity.partial_cmp(&b.capacity).unwrap())
-        .rev()
-        .for_each(|x| {
-            println!(
-                "Datacenter: {}, Cluster: {}, Capacity: {:.2} TB",
-                x.name, x.cluster, x.capacity
-            )
-        });
+    // datacenters
+    //     .iter()
+    //     .sorted_by(|a, b| a.capacity.partial_cmp(&b.capacity).unwrap())
+    //     .rev()
+    //     .for_each(|x| {
+    //         println!(
+    //             "Datacenter: {}, Cluster: {}, Capacity: {:.2} TB",
+    //             x.name, x.cluster, x.capacity
+    //         )
+    //     });
 
-    println!(
-        "vinfo length: {:?}, combined length: {:?}",
-        info_vec.len(),
-        combined.len()
-    );
+    // println!(
+    //     "vinfo length: {:?}, combined length: {:?}",
+    //     info_vec.len(),
+    //     combined.len()
+    // );
 
     let datacenter_strings = datacenters
         .iter()
@@ -332,7 +336,13 @@ fn main() -> Result<()> {
         workloads,
     };
 
-    println!("{:#?}", vse);
+    if cli.print {
+        println!("{:#?}", vse);
+    }
+
+    let total_cap = datacenters.iter().fold(0.0, |acc, x| acc + x.capacity);
+
+    println!("Total Capacity: {:.2} TB", total_cap);
 
     let mut file_name = cli.output_file;
     if !file_name.contains(".json") {
@@ -341,6 +351,8 @@ fn main() -> Result<()> {
     let mut json_file = fs::File::create(&file_name)?;
     let vse_string = serde_json::to_string_pretty(&vse)?;
     json_file.write_all(vse_string.as_bytes())?;
+
+    println!("VSE file written to: {}", file_name);
 
     Ok(())
 }
