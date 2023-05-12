@@ -1,7 +1,6 @@
 use serde::Deserialize;
 use serde::Serialize;
 
-
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewVse {
@@ -47,7 +46,7 @@ pub struct CapArchTier {
     pub id: String,
     pub tier_type: String,
     pub name: String,
-    pub default: bool
+    pub default: bool,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,7 +57,7 @@ pub struct DataProperty {
     pub change_rate: i64,
     pub compression: i64,
     pub growth_factor: i64,
-    pub default: bool
+    pub default: bool,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,7 +67,7 @@ pub struct Window {
     pub backup_window_name: String,
     pub full_window: i64,
     pub incremental_window: i64,
-    pub default: bool
+    pub default: bool,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -80,7 +79,7 @@ pub struct Retentions {
     pub weekly: i64,
     pub monthly: i64,
     pub yearly: i64,
-    pub default: bool
+    pub default: bool,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
