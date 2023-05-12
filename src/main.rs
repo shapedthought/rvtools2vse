@@ -278,9 +278,9 @@ fn main() -> Result<()> {
     };
 
     let window = Window {
-        backup_window_id: "backup_window1".to_string(),
+        backup_window_id: "bw12".to_string(),
         backup_window_name: "backup_window1".to_string(),
-        full_window: 12,
+        full_window: 24,
         incremental_window: 12,
         default: true,
     };
@@ -301,7 +301,7 @@ fn main() -> Result<()> {
             let backup = Backup {
                 retention_id: "rt1".to_string(),
                 repo_id: format!("{}_repo", x.name),
-                backup_window_id: "backup_window1".to_string(),
+                backup_window_id: "bw12".to_string(),
             };
 
             Workload {
@@ -314,7 +314,7 @@ fn main() -> Result<()> {
                 units: x.vm_count as i64,
                 workload_type: "VM".to_string(),
                 data_property_id: "dpopt".to_string(),
-                backup: backup,
+                backup,
                 copies_enabled: false,
                 copies: None,
             }
@@ -340,7 +340,7 @@ fn main() -> Result<()> {
     }
     let mut json_file = fs::File::create(&file_name)?;
     let vse_string = serde_json::to_string_pretty(&vse)?;
-    json_file.write(vse_string.as_bytes())?;
+    json_file.write_all(vse_string.as_bytes())?;
 
     Ok(())
 }
