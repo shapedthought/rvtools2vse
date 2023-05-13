@@ -66,6 +66,8 @@ This will print a table of the DC-level information, including cluster, capacity
 
 This can be useful in deciding if there is anything that needs to be excluded.
 
+This can be run alone with only the RVTools file specified. It will not create a VSE file unless you specify the --output-file flag.
+
 ```
 --dc-exclude dc1,dc2
 ```
@@ -103,7 +105,6 @@ rvtools2vse -r rvtools.xlsx \
 --vm-exclude vm1,vm2 \
 --print \
 --output-file vse_rvtools.json
-
 ```
 
 ## Output file info
