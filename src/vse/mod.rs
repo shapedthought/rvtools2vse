@@ -1,16 +1,23 @@
 use anyhow::Result;
 
-use crate::models::{new_model::{NewVse, Site, PerfTierRepo, CapArchTier, DataProperty, Window, Retentions, Backup, Workload}, rvtools::Datacenter};
+use crate::models::{
+    new_model::{
+        Backup, CapArchTier, DataProperty, NewVse, PerfTierRepo, Retentions, Site, Window, Workload,
+    },
+    rvtools::Datacenter,
+};
 
-pub fn vse_construct(datacenter_strings: Vec<String>, datacenters: &Vec<Datacenter>) -> Result<NewVse> {
-
+pub fn vse_construct(
+    datacenter_strings: Vec<String>,
+    datacenters: &Vec<Datacenter>,
+) -> Result<NewVse> {
     let sites = datacenter_strings
-    .iter()
-    .map(|x| Site {
-        id: x.to_string(),
-        name: x.to_string(),
-    })
-    .collect::<Vec<Site>>();
+        .iter()
+        .map(|x| Site {
+            id: x.to_string(),
+            name: x.to_string(),
+        })
+        .collect::<Vec<Site>>();
 
     // performance tier repos
     let repos = datacenter_strings

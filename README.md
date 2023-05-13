@@ -44,7 +44,7 @@ Options:
 Note that the vInfo "In Use MiB" must have that string and not In Use MB, which was used in older RvTools versions.
 This also applies to the vPartition "Capacity MiB" (Capacity MB in older versions).
 
-## Genral Flags
+## General Flags
 
 You can modify the output file using different flags.
 

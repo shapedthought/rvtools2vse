@@ -1,119 +1,31 @@
-mod models;
+mod excel;
 mod helpers;
+mod models;
 mod vse;
 use std::{fs, io::Write};
 
-use clap::Parser;
-use comfy_table::{Table, presets::UTF8_FULL, modifiers::{UTF8_ROUND_CORNERS, UTF8_SOLID_INNER_BORDERS}};
-use itertools::Itertools;
-use office::Excel;
 use anyhow::Result;
+use clap::Parser;
+use comfy_table::{
+    modifiers::{UTF8_ROUND_CORNERS, UTF8_SOLID_INNER_BORDERS},
+    presets::UTF8_FULL,
+    Table,
+};
+use itertools::Itertools;
 
-use crate::{models::{cli::Cli, rvtools::{Vinfo, Vpartition, Datacenter}}, helpers::{get_position, get_string_value, get_float_value}, vse::vse_construct};
+use crate::{
+    excel::get_excel,
+    models::{
+        cli::Cli,
+        rvtools::{Datacenter, Vinfo, Vpartition},
+    },
+    vse::vse_construct,
+};
 
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    let mut excel = Excel::open(cli.rvtools_file).unwrap();
-
-    let workbook = excel.worksheet_range("vInfo").unwrap();
-
-    let vm_column = get_position(&workbook, &"VM".to_string())?;
-    let power_column = get_position(&workbook, &"Powerstate".to_string())?;
-    let cap_column = get_position(&workbook, &"In Use MiB".to_string())?;
-    let dc_column = get_position(&workbook, &"Datacenter".to_string())?;
-    let cluster_column = get_position(&workbook, &"Cluster".to_string())?;
-
-    let partition = excel.worksheet_range("vPartition").unwrap();
-
-    let part_vm_column = get_position(&partition, &"VM".to_string())?;
-    let part_power_column = get_position(&partition, &"Powerstate".to_string())?;
-    let part_cap_column = get_position(&partition, &"Consumed MiB".to_string())?;
-
-    let mut info_vec: Vec<Vinfo> = Vec::new();
-
-    for row in workbook.rows().skip(1) {
-        let power_state = get_string_value(&row[power_column], "vInfo - column powerState".to_string())?;
-        if power_state.contains("poweredOff") && !cli.include_powered_off {
-            continue;
-        }
-        let vm_name = get_string_value(&row[vm_column], "vInfo - column 'VM'".to_string())?;
-        let cap = get_float_value(&row[cap_column], "vInfo - column 'Capacity MiB'".to_string())?;
-        let dc = get_string_value(&row[dc_column], "vInfo - column 'Datacenter'".to_string())?;
-        let cluster = get_string_value(&row[cluster_column], "vInfo - column 'Cluster'".to_string())?;
-
-        info_vec.push(Vinfo {
-            vm_name: vm_name.to_string(),
-            datacenter: dc.to_string(),
-            cluster: cluster.to_string(),
-            capacity: cap,
-        })
-    }
-
-    // filter out included datacenters and clusters
-    if let Some(dc_include) = cli.dc_include {
-        info_vec = info_vec
-            .into_iter()
-            .filter(|x| dc_include.contains(&x.datacenter))
-            .collect::<Vec<Vinfo>>();
-
-        println!("Including Datacenters: {:?}", dc_include);
-    }
-
-    // filter out included clusters
-    if let Some(cluster_include) = cli.cluster_include {
-        info_vec = info_vec
-            .into_iter()
-            .filter(|x| cluster_include.contains(&x.cluster))
-            .collect::<Vec<Vinfo>>();
-
-        println!("Including Clusters: {:?}", cluster_include);
-    }
-
-    // filter out excluded datacenters
-    if let Some(dc_exclude) = cli.dc_exclude {
-        info_vec = info_vec
-            .into_iter()
-            .filter(|x| !dc_exclude.contains(&x.datacenter))
-            .collect::<Vec<Vinfo>>();
-
-        println!("Excluding Datacenters: {:?}", dc_exclude);
-    }
-
-    // filter out excluded clusters
-    if let Some(cluster_exclude) = cli.cluster_exclude {
-        info_vec = info_vec
-            .into_iter()
-            .filter(|x| !cluster_exclude.contains(&x.cluster))
-            .collect::<Vec<Vinfo>>();
-
-        println!("Excluding Clusters: {:?}", cluster_exclude);
-    }
-
-    if let Some(vm_exclude) = cli.vm_exclude {
-        info_vec = info_vec
-            .into_iter()
-            .filter(|x| !vm_exclude.contains(&x.vm_name))
-            .collect::<Vec<Vinfo>>();
-
-        println!("Excluding VMs: {:?}", vm_exclude);
-    }
-
-    let mut part_vec: Vec<Vpartition> = Vec::new();
-
-    for row in partition.rows().skip(1) {
-        let power_state = get_string_value(&row[part_power_column], "vParition - column 'powerState'".to_string())?;
-        if power_state.contains("poweredOff") && !cli.include_powered_off {
-            continue;
-        }
-        let vm_name = get_string_value(&row[part_vm_column], "vParition - column 'VM'".to_string())?;
-        let cap = get_float_value(&row[part_cap_column], "vParition - column 'Capacity MiB'".to_string())?;
-
-        part_vec.push(Vpartition {
-            vm_name: vm_name.to_string(),
-            capacity: cap,
-        })
-    }
+    let (info_vec, part_vec) = get_excel(&cli)?;
 
     let devisor = 1024_f64.powf(2.0);
 
