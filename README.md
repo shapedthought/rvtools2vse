@@ -47,42 +47,48 @@ This also applies to the vPartition "Capacity MiB" (Capacity MB in older version
 You can modify the output file using different flags.
 
 ```
--i / --include-powered-off 
+-i / --include-powered-off
 ```
+
 In normal operation the powered off VMs will be excluded, using this flag will add them to the results.
 
 ```
 -p / --print
 ```
-Print will display the struct representation of the file to the terminal. 
+
+Print will display the struct representation of the file to the terminal.
 
 ```
 --dc-level-info
 ```
-This will print a table of the DC level level information, including cluster, capacity and VM count. 
 
-This can be useful in deciding if there is anything that needs to be excluded. 
+This will print a table of the DC level level information, including cluster, capacity and VM count.
+
+This can be useful in deciding if there is anything that needs to be excluded.
 
 ```
 --dc-exclude dc1,dc2
 ```
-You can pass a list of DC names to this flag and they will be filtered out of the results. 
+
+You can pass a list of DC names to this flag and they will be filtered out of the results.
 
 ```
 --cluster-exclude cluster1,cluster2
 ```
+
 Like with DC exclude, you can also pass a list of clusters to exclude.
 
 ```
 --vm-exclude vm1,vm2
 ```
+
 This is the same as DC and Cluster exclude.
 
 ```
--d / --do-not-use-vpartition 
+-d / --do-not-use-vpartition
 ```
 
-The tool will also use the vPartition capacity figure if it is available for a VM which normally reduces the capacity. 
+The tool will also use the vPartition capacity figure if it is available for a VM which normally reduces the capacity.
 
 Using this flag will mean that only the vInfo capacity figures will be used.
 
@@ -109,6 +115,18 @@ rvtools2vse -r rvtools.xlsx \
   - 30 day retention period
   - 24 full/ 12 inc hour backup window
   - "Generic Optimistic" data property
-- Repositories are set to use ReFS/XFS 
+- Repositories are set to use ReFS/XFS
 
 The aim is to get the data into the VSE and which point you can modify it as required.
+
+## vParition capacity
+
+The tool in normal use will read the vParition tab and group all the partitions for a VM together and to create total VM capacity figure.
+
+```
+VM1 100GB
+  Partition1 50GB
+  Partition2 50GB
+```
+
+The tool then goes through all the vInfo VMs and where there is a match on the VM name, and the vParition value is lower than the vInfo value, the vParition value is used.
