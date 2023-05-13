@@ -4,16 +4,27 @@ use anyhow::Result;
 use itertools::Itertools;
 use office::{DataType, Excel};
 mod new_model;
-use new_model::{
-    CapArchTier, DataProperty, NewVse, PerfTierRepo, Retentions, Site, Window, Workload,
-};
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{modifiers::UTF8_SOLID_INNER_BORDERS, Table};
+use new_model::{
+    CapArchTier, DataProperty, NewVse, PerfTierRepo, Retentions, Site, Window, Workload,
+};
 
 use crate::new_model::Backup;
 
 use clap::Parser;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+enum MyError {
+    #[error("Could not convert enum to string: {0}")]
+    EnumToString(String),
+    #[error("Could not convert enum to float: {0}")]
+    EnumToFloat(String),
+    #[error("Could not get position of column: {0}")]
+    ColumnPosition(String),
+}
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -77,61 +88,65 @@ struct Datacenter {
     capacity: f64,
 }
 
-fn get_position(data: &office::Range, col_name: &String) -> usize {
-    data.rows()
+fn get_position(data: &office::Range, col_name: &String) -> Result<usize, MyError> {
+    let pos = data.rows()
         .next()
         .unwrap()
         .iter()
-        .position(|x| x == &DataType::String(col_name.to_string()))
-        .unwrap()
-}
-
-fn get_string_value(data: &DataType) -> String {
-    match data {
-        DataType::String(t) => t.to_string(),
-        _ => panic!("ahhhh"),
+        .position(|x| x == &DataType::String(col_name.to_string()));
+    
+    if let Some(p) = pos {
+        Ok(p)
+    } else {
+        Err(MyError::ColumnPosition(col_name.to_string()))
     }
 }
 
-fn get_float_value(data: &DataType) -> f64 {
+fn get_string_value(data: &DataType, item: String) -> Result<String, MyError> {
     match data {
-        DataType::Float(t) => *t,
-        DataType::Int(t) => *t as f64,
-        _ => panic!("ahhhh"),
+        DataType::String(t) => Ok(t.to_string()),
+        _ => Err(MyError::EnumToString(item)),
+    }
+}
+
+fn get_float_value(data: &DataType, item: String) -> Result<f64, MyError> {
+    match data {
+        DataType::Float(t) => Ok(*t),
+        DataType::Int(t) => Ok(*t as f64),
+        _ => Err(MyError::EnumToFloat(item)),
     }
 }
 
 fn main() -> Result<()> {
-
     let cli = Cli::parse();
 
     let mut excel = Excel::open(cli.rvtools_file).unwrap();
 
     let workbook = excel.worksheet_range("vInfo").unwrap();
 
-    let vm_column = get_position(&workbook, &"VM".to_string());
-    let power_column = get_position(&workbook, &"Powerstate".to_string());
-    let cap_column = get_position(&workbook, &"In Use MiB".to_string());
-    let dc_column = get_position(&workbook, &"Datacenter".to_string());
-    let cluster_column = get_position(&workbook, &"Cluster".to_string());
+    let vm_column = get_position(&workbook, &"VM".to_string())?;
+    let power_column = get_position(&workbook, &"Powerstate".to_string())?;
+    let cap_column = get_position(&workbook, &"In Use MiB".to_string())?;
+    let dc_column = get_position(&workbook, &"Datacenter".to_string())?;
+    let cluster_column = get_position(&workbook, &"Cluster".to_string())?;
 
     let partition = excel.worksheet_range("vPartition").unwrap();
 
-    let part_vm_column = get_position(&partition, &"VM".to_string());
-    let part_power_column = get_position(&partition, &"Powerstate".to_string());
-    let part_cap_column = get_position(&partition, &"Consumed MiB".to_string());
+    let part_vm_column = get_position(&partition, &"VM".to_string())?;
+    let part_power_column = get_position(&partition, &"Powerstate".to_string())?;
+    let part_cap_column = get_position(&partition, &"Consumed MiB".to_string())?;
 
     let mut info_vec: Vec<Vinfo> = Vec::new();
 
     for row in workbook.rows().skip(1) {
-        let power_state = get_string_value(&row[power_column]);
+        let power_state = get_string_value(&row[power_column], "vInfo - column powerState".to_string())?;
         if power_state.contains("poweredOff") && !cli.include_powered_off {
             continue;
         }
-        let vm_name = get_string_value(&row[vm_column]);
-        let cap = get_float_value(&row[cap_column]);
-        let dc = get_string_value(&row[dc_column]);
-        let cluster = get_string_value(&row[cluster_column]);
+        let vm_name = get_string_value(&row[vm_column], "vInfo - column 'VM'".to_string())?;
+        let cap = get_float_value(&row[cap_column], "vInfo - column 'Capacity MiB'".to_string())?;
+        let dc = get_string_value(&row[dc_column], "vInfo - column 'Datacenter'".to_string())?;
+        let cluster = get_string_value(&row[cluster_column], "vInfo - column 'Cluster'".to_string())?;
 
         info_vec.push(Vinfo {
             vm_name: vm_name.to_string(),
@@ -139,7 +154,7 @@ fn main() -> Result<()> {
             cluster: cluster.to_string(),
             capacity: cap,
         })
-    };
+    }
 
     // filter out excluded datacenters and clusters
     if let Some(dc_exclude) = cli.dc_exclude {
@@ -172,12 +187,12 @@ fn main() -> Result<()> {
     let mut part_vec: Vec<Vpartition> = Vec::new();
 
     for row in partition.rows().skip(1) {
-        let power_state = get_string_value(&row[part_power_column]);
+        let power_state = get_string_value(&row[part_power_column], "vParition - column 'powerState'".to_string())?;
         if power_state.contains("poweredOff") && !cli.include_powered_off {
             continue;
         }
-        let vm_name = get_string_value(&row[part_vm_column]);
-        let cap = get_float_value(&row[part_cap_column]);
+        let vm_name = get_string_value(&row[part_vm_column], "vParition - column 'VM'".to_string())?;
+        let cap = get_float_value(&row[part_cap_column], "vParition - column 'Capacity MiB'".to_string())?;
 
         part_vec.push(Vpartition {
             vm_name: vm_name.to_string(),
@@ -257,12 +272,7 @@ fn main() -> Result<()> {
             .load_preset(UTF8_FULL)
             .apply_modifier(UTF8_ROUND_CORNERS)
             .apply_modifier(UTF8_SOLID_INNER_BORDERS)
-            .set_header(vec![
-                "Datacenter",
-                "Cluster",
-                "Capacity (TB)",
-                "VM Count",
-            ]);
+            .set_header(vec!["Datacenter", "Cluster", "Capacity (TB)", "VM Count"]);
 
         datacenters
             .iter()
@@ -275,13 +285,8 @@ fn main() -> Result<()> {
                     format!("{:.2}", x.capacity),
                     x.vm_count.to_string(),
                 ]);
-
-                // println!(
-                //     "Datacenter: {}, Cluster: {}, Capacity: {:.2} TB, VM Count: {}",
-                //     x.name, x.cluster, x.capacity, x.vm_count
-                // )
             });
-            println!("{table}");
+        println!("{table}");
     }
 
     let datacenter_strings = datacenters
@@ -413,14 +418,13 @@ fn main() -> Result<()> {
     println!("Total Capacity: {:.2} TB", total_cap);
 
     if let Some(mut file_name) = cli.output_file {
-
         if !file_name.contains(".json") {
             file_name.push_str(".json");
         }
         let mut json_file = fs::File::create(&file_name)?;
         let vse_string = serde_json::to_string_pretty(&vse)?;
         json_file.write_all(vse_string.as_bytes())?;
-    
+
         println!("VSE file written to: {}", file_name);
     }
 
