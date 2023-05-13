@@ -1,4 +1,4 @@
-use std::{fs, io::Write, path::PathBuf};
+use std::{fs, io::Write, path::PathBuf, println};
 
 use anyhow::Result;
 use itertools::Itertools;
@@ -7,6 +7,9 @@ mod new_model;
 use new_model::{
     CapArchTier, DataProperty, NewVse, PerfTierRepo, Retentions, Site, Window, Workload,
 };
+use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+use comfy_table::presets::UTF8_FULL;
+use comfy_table::{modifiers::UTF8_SOLID_INNER_BORDERS, Table};
 
 use crate::new_model::Backup;
 
@@ -23,13 +26,29 @@ struct Cli {
     #[clap(short, long, action, default_value_t = false)]
     include_powered_off: bool,
 
-    /// Output File
+    /// Output File [Optional]
     #[clap(short, long, value_parser)]
-    output_file: String,
+    output_file: Option<String>,
 
     /// Print converted data
     #[clap(short, long, action, default_value_t = false)]
     print: bool,
+
+    /// Print DC level summary
+    #[clap(long, action, default_value_t = false)]
+    dc_level_info: bool,
+
+    /// DC exclude list
+    #[clap(long, value_delimiter = ',', num_args = 1..)]
+    dc_exclude: Option<Vec<String>>,
+
+    /// Cluster exclude list
+    #[clap(long, value_delimiter = ',', num_args = 1..)]
+    cluster_exclude: Option<Vec<String>>,
+
+    /// VM exclude list
+    #[clap(long, value_delimiter = ',', num_args = 1..)]
+    vm_exclude: Option<Vec<String>>,
 
     /// Don't use vPartition capacity
     #[clap(short, long, action, default_value_t = false)]
@@ -120,6 +139,34 @@ fn main() -> Result<()> {
             cluster: cluster.to_string(),
             capacity: cap,
         })
+    };
+
+    // filter out excluded datacenters and clusters
+    if let Some(dc_exclude) = cli.dc_exclude {
+        info_vec = info_vec
+            .into_iter()
+            .filter(|x| !dc_exclude.contains(&x.datacenter))
+            .collect::<Vec<Vinfo>>();
+
+        println!("Excluding Datacenters: {:?}", dc_exclude);
+    }
+
+    if let Some(cluster_exclude) = cli.cluster_exclude {
+        info_vec = info_vec
+            .into_iter()
+            .filter(|x| !cluster_exclude.contains(&x.cluster))
+            .collect::<Vec<Vinfo>>();
+
+        println!("Excluding Clusters: {:?}", cluster_exclude);
+    }
+
+    if let Some(vm_exclude) = cli.vm_exclude {
+        info_vec = info_vec
+            .into_iter()
+            .filter(|x| !vm_exclude.contains(&x.vm_name))
+            .collect::<Vec<Vinfo>>();
+
+        println!("Excluding VMs: {:?}", vm_exclude);
     }
 
     let mut part_vec: Vec<Vpartition> = Vec::new();
@@ -203,22 +250,39 @@ fn main() -> Result<()> {
             })
         });
 
-    // datacenters
-    //     .iter()
-    //     .sorted_by(|a, b| a.capacity.partial_cmp(&b.capacity).unwrap())
-    //     .rev()
-    //     .for_each(|x| {
-    //         println!(
-    //             "Datacenter: {}, Cluster: {}, Capacity: {:.2} TB",
-    //             x.name, x.cluster, x.capacity
-    //         )
-    //     });
+    if cli.dc_level_info {
+        let mut table = Table::new();
 
-    // println!(
-    //     "vinfo length: {:?}, combined length: {:?}",
-    //     info_vec.len(),
-    //     combined.len()
-    // );
+        table
+            .load_preset(UTF8_FULL)
+            .apply_modifier(UTF8_ROUND_CORNERS)
+            .apply_modifier(UTF8_SOLID_INNER_BORDERS)
+            .set_header(vec![
+                "Datacenter",
+                "Cluster",
+                "Capacity (TB)",
+                "VM Count",
+            ]);
+
+        datacenters
+            .iter()
+            .sorted_by(|a, b| a.capacity.partial_cmp(&b.capacity).unwrap())
+            .rev()
+            .for_each(|x| {
+                table.add_row(vec![
+                    x.name.to_string(),
+                    x.cluster.to_string(),
+                    format!("{:.2}", x.capacity),
+                    x.vm_count.to_string(),
+                ]);
+
+                // println!(
+                //     "Datacenter: {}, Cluster: {}, Capacity: {:.2} TB, VM Count: {}",
+                //     x.name, x.cluster, x.capacity, x.vm_count
+                // )
+            });
+            println!("{table}");
+    }
 
     let datacenter_strings = datacenters
         .iter()
@@ -340,19 +404,25 @@ fn main() -> Result<()> {
         println!("{:#?}", vse);
     }
 
+    // total vms
+    let total_vms = combined.len();
+    println!("Total VMs: {}", total_vms);
+
     let total_cap = datacenters.iter().fold(0.0, |acc, x| acc + x.capacity);
 
     println!("Total Capacity: {:.2} TB", total_cap);
 
-    let mut file_name = cli.output_file;
-    if !file_name.contains(".json") {
-        file_name.push_str(".json");
-    }
-    let mut json_file = fs::File::create(&file_name)?;
-    let vse_string = serde_json::to_string_pretty(&vse)?;
-    json_file.write_all(vse_string.as_bytes())?;
+    if let Some(mut file_name) = cli.output_file {
 
-    println!("VSE file written to: {}", file_name);
+        if !file_name.contains(".json") {
+            file_name.push_str(".json");
+        }
+        let mut json_file = fs::File::create(&file_name)?;
+        let vse_string = serde_json::to_string_pretty(&vse)?;
+        json_file.write_all(vse_string.as_bytes())?;
+    
+        println!("VSE file written to: {}", file_name);
+    }
 
     Ok(())
 }
