@@ -49,6 +49,14 @@ struct Cli {
     #[clap(long, action, default_value_t = false)]
     dc_level_info: bool,
 
+    /// DC include list
+    #[clap(long, value_delimiter = ',', num_args = 1..)]
+    dc_include: Option<Vec<String>>,
+
+    /// Cluster include list
+    #[clap(long, value_delimiter = ',', num_args = 1..)]
+    cluster_include: Option<Vec<String>>,
+
     /// DC exclude list
     #[clap(long, value_delimiter = ',', num_args = 1..)]
     dc_exclude: Option<Vec<String>>,
@@ -156,7 +164,27 @@ fn main() -> Result<()> {
         })
     }
 
-    // filter out excluded datacenters and clusters
+    // filter out included datacenters and clusters
+    if let Some(dc_include) = cli.dc_include {
+        info_vec = info_vec
+            .into_iter()
+            .filter(|x| dc_include.contains(&x.datacenter))
+            .collect::<Vec<Vinfo>>();
+
+        println!("Including Datacenters: {:?}", dc_include);
+    }
+
+    // filter out included clusters
+    if let Some(cluster_include) = cli.cluster_include {
+        info_vec = info_vec
+            .into_iter()
+            .filter(|x| cluster_include.contains(&x.cluster))
+            .collect::<Vec<Vinfo>>();
+
+        println!("Including Clusters: {:?}", cluster_include);
+    }
+
+    // filter out excluded datacenters
     if let Some(dc_exclude) = cli.dc_exclude {
         info_vec = info_vec
             .into_iter()
@@ -166,6 +194,7 @@ fn main() -> Result<()> {
         println!("Excluding Datacenters: {:?}", dc_exclude);
     }
 
+    // filter out excluded clusters
     if let Some(cluster_exclude) = cli.cluster_exclude {
         info_vec = info_vec
             .into_iter()
