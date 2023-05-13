@@ -30,7 +30,7 @@ Options:
   -i, --include-powered-off                   Include Powered Off VMs
   -o, --output-file <OUTPUT_FILE>             Output File [Optional]
   -p, --print                                 Print converted data
-      --dc-level-info                         Print DC level summary
+  -s, --show-info                         Print DC level summary
       --dc-include <DC_INCLUDE>...            DC include list
       --cluster-include <CLUSTER_INCLUDE>...  Cluster include list
       --dc-exclude <DC_EXCLUDE>...            DC exclude list
@@ -59,7 +59,7 @@ In normal operation, the powered-off VMs will be excluded; using this flag will 
 Print will display the struct representation of the file to the terminal.
 
 ```
---dc-level-info
+--show-info
 ```
 This will print a table of the DC-level information, including cluster, capacity and VM count.
 

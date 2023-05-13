@@ -180,7 +180,7 @@ pub fn run() -> Result<()> {
             })
         });
 
-    if cli.dc_level_info {
+    if cli.show_info {
         let mut table = Table::new();
 
         table

@@ -22,8 +22,8 @@ pub struct Cli {
     pub print: bool,
 
     /// Print DC level summary
-    #[clap(long, action, default_value_t = false)]
-    pub dc_level_info: bool,
+    #[clap(short, long, action, default_value_t = false)]
+    pub show_info: bool,
 
     /// DC include list
     #[clap(long, value_delimiter = ',', num_args = 1..)]
