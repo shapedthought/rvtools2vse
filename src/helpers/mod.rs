@@ -49,4 +49,3 @@ impl GetFloatValue for DataType {
         }
     }
 }
-

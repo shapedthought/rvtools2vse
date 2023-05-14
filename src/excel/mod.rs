@@ -1,4 +1,4 @@
-use helpers::{MyRange, GetStringValue, GetFloatValue};
+use helpers::{GetFloatValue, GetStringValue, MyRange};
 use office::Excel;
 
 use crate::{
@@ -25,25 +25,17 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
 
     let mut info_vec: Vec<Vinfo> = Vec::new();
     for row in workbook.rows().skip(1) {
-        let power_state = row[power_column].get_string_value("vInfo - column powerState".to_string())?;
-        // let power_state =
-        //     get_string_value(&row[power_column], "vInfo - column powerState".to_string())?;
+        let power_state =
+            row[power_column].get_string_value("vInfo - column powerState".to_string())?;
+
         if power_state.contains("poweredOff") && !cli.include_powered_off {
             continue;
         }
         let vm_name = row[vm_column].get_string_value("vInfo - column 'VM'".to_string())?;
-        // let vm_name = get_string_value(&row[vm_column], "vInfo - column 'VM'".to_string())?;
         let cap = row[cap_column].get_float_value("vInfo - column 'Capacity MiB'".to_string())?;
-        // let cap = get_float_value(
-        //     &row[cap_column],
-        //     "vInfo - column 'Capacity MiB'".to_string(),
-        // )?;
         let dc = row[dc_column].get_string_value("vInfo - column 'Datacenter'".to_string())?;
-        // let dc = get_string_value(&row[dc_column], "vInfo - column 'Datacenter'".to_string())?;
         let cluster =
             row[cluster_column].get_string_value("vInfo - column 'Cluster'".to_string())?;
-        // let cluster =
-        //     get_string_value(&row[cluster_column], "vInfo - column 'Cluster'".to_string())?;
 
         info_vec.push(Vinfo {
             vm_name: vm_name.to_string(),
@@ -94,22 +86,17 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
     }
     let mut part_vec: Vec<Vpartition> = Vec::new();
     for row in partition.rows().skip(1) {
-        let power_state = row[part_power_column].get_string_value("vParition - column 'powerState'".to_string())?;
-        // let power_state = get_string_value(
-        //     &row[part_power_column],
-        //     "vParition - column 'powerState'".to_string(),
-        // )?;
+        let power_state = row[part_power_column]
+            .get_string_value("vParition - column 'powerState'".to_string())?;
+
         if power_state.contains("poweredOff") && !cli.include_powered_off {
             continue;
         }
-        let vm_name = row[part_vm_column].get_string_value("vParition - column 'VM'".to_string())?;
-        // let vm_name =
-        //     get_string_value(&row[part_vm_column], "vParition - column 'VM'".to_string())?;
-        let cap = row[part_cap_column].get_float_value("vParition - column 'Capacity MiB'".to_string())?;
-        // let cap = get_float_value(
-        //     &row[part_cap_column],
-        //     "vParition - column 'Capacity MiB'".to_string(),
-        // )?;
+        let vm_name =
+            row[part_vm_column].get_string_value("vParition - column 'VM'".to_string())?;
+
+        let cap = row[part_cap_column]
+            .get_float_value("vParition - column 'Capacity MiB'".to_string())?;
 
         part_vec.push(Vpartition {
             vm_name: vm_name.to_string(),
