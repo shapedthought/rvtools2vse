@@ -37,12 +37,13 @@ Options:
       --cluster-exclude <CLUSTER_EXCLUDE>...  Cluster exclude list
       --vm-exclude <VM_EXCLUDE>...            VM exclude list
   -d, --do-not-use-vpartition                 Don't use vPartition capacity
+  -v, --vm-table-print                        Print VM table
   -h, --help                                  Print help
   -V, --version                               Print version
 ```
 
-Note that the vInfo "In Use MiB" must have that string and not In Use MB, which was used in older RvTools versions.
-This also applies to the vPartition "Capacity MiB" (Capacity MB in older versions).
+Note that the vInfo "In Use MiB" must have that string and not "In Use MB", which was used in older RvTools versions.
+This also applies to the vPartition "Capacity MiB" ("Capacity MB" in older versions).
 
 ## General Flags
 
@@ -73,6 +74,11 @@ This can be run alone with only the RVTools file specified. It will not create a
 The tool will also use the vPartition capacity figure if it is available for a VM which normally reduces the capacity.
 
 Using this flag will mean only the vInfo capacity figures will be used.
+
+```
+--vm-table-print
+```
+Prints a table of the VMs and their capacity figures. Useful for checking the VMs that are being included.
 
 ## Includes and Excludes
 

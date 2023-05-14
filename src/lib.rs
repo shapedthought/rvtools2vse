@@ -116,6 +116,39 @@ pub fn run() -> Result<()> {
         println!("{table}");
     }
 
+    if cli.vm_table_print {
+        let mut table = Table::new();
+
+        table
+            .load_preset(UTF8_FULL)
+            .apply_modifier(UTF8_ROUND_CORNERS)
+            .apply_modifier(UTF8_SOLID_INNER_BORDERS)
+            .set_header(vec![
+                "Datacenter",
+                "Cluster",
+                "VM Name",
+                "Capacity (GiB)",
+                "vPartition (GiB)",
+            ]);
+
+        let gb_devisor = 1024_f64.powf(1.0);
+
+        combined
+            .iter()
+            .sorted_by(|a, b| a.capacity.partial_cmp(&b.capacity).unwrap())
+            .rev()
+            .for_each(|x| {
+                table.add_row(vec![
+                    x.datacenter.to_string(),
+                    x.cluster.to_string(),
+                    x.vm_name.to_string(),
+                    format!("{:.2}", x.capacity / gb_devisor),
+                    format!("{:.2}", x.capacity / gb_devisor),
+                ]);
+            });
+        println!("{table}");
+    }
+
     let datacenter_strings = datacenters
         .iter()
         .map(|x| format!("{}", x.name))

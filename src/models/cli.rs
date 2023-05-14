@@ -48,4 +48,10 @@ pub struct Cli {
     /// Don't use vPartition capacity
     #[clap(short, long, action, default_value_t = false)]
     pub do_not_use_vpartition: bool,
+
+    /// Print VM table
+    #[clap(short, long, action, default_value_t = false)]
+    pub vm_table_print: bool,
 }
+
+
