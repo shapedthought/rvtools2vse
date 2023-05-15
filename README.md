@@ -45,6 +45,23 @@ Options:
 Note that the vInfo "In Use MiB" must have that string and not "In Use MB", which was used in older RvTools versions.
 This also applies to the vPartition "Capacity MiB" ("Capacity MB" in older versions).
 
+## RvTools columns 
+
+The RvTools columns used are:
+
+| Sheet      | Column       |
+| ---------- | ------------ |
+| vInfo      | VM           |
+| vInfo      | powerState   |
+| vInfo      | In Use MiB   |
+| vInfo      | Datacenter   |
+| vInfo      | Cluster      |      |
+| vPartition | VM           |
+| vPartition | powerState   |
+| vPartition | Consumed MiB |
+
+If any of these columns are missing or any of the cells are empty, the tool will not work.
+
 ## General Flags
 
 You can modify the output file using different flags.
@@ -140,3 +157,10 @@ VM1 100GB
 ```
 
 The tool then goes through all the vInfo VMs, and where there is a match on the VM name and the vParition value is lower than the vInfo value, the vParition value is used.
+
+## Common issues
+
+You may find that the tool cannot find the "vInfo" or "vParition" tabs, to solve this open the file and rename the tabs and save the file. 
+
+I do not know why this happends, but I assume that it has something to do with the underlying XML file not being updated with the tab name.
+
