@@ -56,6 +56,7 @@ pub fn run() -> Result<()> {
                         datacenter: i.datacenter.clone(),
                         cluster: i.cluster.clone(),
                         capacity: low_cap,
+                        powerstate: i.powerstate.clone(),
                     };
                     combined.push(new_st);
                     found_match = true;
@@ -129,6 +130,7 @@ pub fn run() -> Result<()> {
                 "VM Name",
                 "Capacity (GiB)",
                 "vPartition (GiB)",
+                "Power State"
             ]);
 
         let gb_devisor = 1024_f64.powf(1.0);
@@ -144,6 +146,7 @@ pub fn run() -> Result<()> {
                     x.vm_name.to_string(),
                     format!("{:.2}", x.capacity / gb_devisor),
                     format!("{:.2}", x.capacity / gb_devisor),
+                    x.powerstate.to_string(),
                 ]);
             });
         println!("{table}");

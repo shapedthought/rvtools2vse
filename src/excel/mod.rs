@@ -42,6 +42,7 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
             datacenter: dc.to_string(),
             cluster: cluster.to_string(),
             capacity: cap,
+            powerstate: power_state.to_string(),
         })
     }
     if let Some(dc_include) = &cli.dc_include {

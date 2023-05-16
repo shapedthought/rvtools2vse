@@ -4,6 +4,7 @@ pub struct Vinfo {
     pub datacenter: String,
     pub cluster: String,
     pub capacity: f64,
+    pub powerstate: String,
 }
 
 #[derive(Debug, Clone)]
