@@ -52,6 +52,12 @@ pub struct Cli {
     /// Print VM table
     #[clap(short, long, action, default_value_t = false)]
     pub vm_table_print: bool,
+
+    /// Flatten to single site, repo and workload
+    #[clap(long, action, default_value_t = false)]
+    pub flatten: bool,
+
+    /// Flatten to single cluster per-site
+    #[clap(long, action, default_value_t = false)]
+    pub flatten_site: bool,
 }
-
-

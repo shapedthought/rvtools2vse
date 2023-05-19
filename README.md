@@ -8,7 +8,7 @@ Requires Rust to be installed
 
 1. clone repo
 2. cd into repo
-3. Run:
+3. run:
 
 ```
 cargo install --path .
@@ -38,8 +38,11 @@ Options:
       --vm-exclude <VM_EXCLUDE>...            VM exclude list
   -d, --do-not-use-vpartition                 Don't use vPartition capacity
   -v, --vm-table-print                        Print VM table
+      --flatten                               Flatten to single site, repo and workload
+      --flatten-site                          Flatten to single cluster per-site
   -h, --help                                  Print help
   -V, --version                               Print version
+
 ```
 
 Note that the vInfo "In Use MiB" must have that string and not "In Use MB", which was used in older RvTools versions.
@@ -77,7 +80,7 @@ In normal operation, the powered-off VMs will be excluded; using this flag will 
 Print will display the struct representation of the file to the terminal.
 
 ```
---show-info
+-s / --show-info
 ```
 This will print a table of the DC-level information, including cluster, capacity and VM count.
 
@@ -97,6 +100,17 @@ Using this flag will mean only the vInfo capacity figures will be used.
 ```
 Prints a table of the VMs and their capacity figures. Useful for checking the VMs that are being included.
 
+```
+--flatten
+```
+This flag will flatten all the VM counts and capacity into a single Workloaded under a DC called "DC1" and cluster called "Cluster1".
+
+This is useful if you want to quickly aggregate all the results into a single Workload. 
+
+```
+--flatten-site
+```
+This flag will flatten the clusters into a single workload per DC (site).
 ## Includes and Excludes
 
 You can use include and exclude items from the results using several flags.

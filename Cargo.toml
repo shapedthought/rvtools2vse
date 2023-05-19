@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# calamine = "0.19.1"
+calamine = "0.19.1"
 anyhow = "1.0.58"
-office = "0.8.1"
+# office = "0.8.1"
 itertools = "0.10.5"
 serde = {version = "1.0.152", features = ["derive"]}
 clap = { version = "4.1.6", features = ["derive"] }

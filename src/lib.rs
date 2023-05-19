@@ -72,26 +72,64 @@ pub fn run() -> Result<()> {
 
     let mut datacenters: Vec<Datacenter> = Vec::new();
 
-    combined
-        .iter()
-        .sorted_by_key(|s| (&s.datacenter, &s.cluster))
-        .group_by(|s| (&s.datacenter, &s.cluster))
-        .into_iter()
-        .for_each(|(key, group)| {
-            let mut cap = 0.0;
-            let mut vm_count = 0;
-            group.for_each(|x| {
-                cap += x.capacity;
-                vm_count += 1;
-            });
+    // Flattens the DC results into single clusters
+    if cli.flatten_site && !cli.flatten {
+        combined
+            .iter()
+            .sorted_by_key(|s| &s.datacenter)
+            .group_by(|s| &s.datacenter)
+            .into_iter()
+            .for_each(|(key, group)| {
+                let mut cap = 0.0;
+                let mut vm_count = 0;
+                group.for_each(|x| {
+                    cap += x.capacity;
+                    vm_count += 1;
+                });
 
-            datacenters.push(Datacenter {
-                name: key.0.to_string(),
-                cluster: key.1.to_string(),
-                vm_count,
-                capacity: cap / devisor,
-            })
-        });
+                datacenters.push(Datacenter {
+                    name: key.to_string(),
+                    cluster: format!("{}_cluster", key.to_string()),
+                    vm_count,
+                    capacity: cap / devisor,
+                })
+            });
+    } else {
+        combined
+            .iter()
+            .sorted_by_key(|s| (&s.datacenter, &s.cluster))
+            .group_by(|s| (&s.datacenter, &s.cluster))
+            .into_iter()
+            .for_each(|(key, group)| {
+                let mut cap = 0.0;
+                let mut vm_count = 0;
+                group.for_each(|x| {
+                    cap += x.capacity;
+                    vm_count += 1;
+                });
+
+                datacenters.push(Datacenter {
+                    name: key.0.to_string(),
+                    cluster: key.1.to_string(),
+                    vm_count,
+                    capacity: cap / devisor,
+                })
+            });
+    }
+
+    if cli.flatten && !cli.flatten_site {
+        let vm_count: usize = datacenters.iter().map(|x| x.vm_count).sum();
+        let capacity: f64 = datacenters.iter().map(|x| x.capacity).sum();
+
+        datacenters = vec![];
+
+        datacenters.push(Datacenter {
+            name: "DC1".to_string(),
+            cluster: "Cluster1".to_string(),
+            vm_count,
+            capacity,
+        })
+    }
 
     if cli.show_info {
         let mut table = Table::new();
@@ -130,7 +168,7 @@ pub fn run() -> Result<()> {
                 "VM Name",
                 "Capacity (GiB)",
                 "vPartition (GiB)",
-                "Power State"
+                "Power State",
             ]);
 
         let gb_devisor = 1024_f64.powf(1.0);
