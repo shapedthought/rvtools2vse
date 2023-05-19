@@ -36,7 +36,7 @@ pub fn get_float_value(data_type: &DataType, item: String, row: usize) -> Result
         DataType::Float(t) => Ok(*t),
         DataType::Int(t) => Ok(*t as f64),
         DataType::Empty => Ok(0.0),
-        _ => Err(MyError::EnumToString(format!(
+        _ => Err(MyError::EnumToFloat(format!(
             "{} - row {} - Datatype {:?}",
             item, row, data_type
         ))),
