@@ -16,7 +16,7 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
 
     let cap_column = get_col_position(&workbook, &"In Use MiB".to_string())?;
 
-   let dc_column = get_col_position(&workbook, &"Datacenter".to_string())?;
+    let dc_column = get_col_position(&workbook, &"Datacenter".to_string())?;
 
     let cluster_column = get_col_position(&workbook, &"Cluster".to_string())?;
 

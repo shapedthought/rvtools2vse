@@ -37,6 +37,7 @@ Options:
       --cluster-exclude <CLUSTER_EXCLUDE>...  Cluster exclude list
       --vm-exclude <VM_EXCLUDE>...            VM exclude list
   -d, --do-not-use-vpartition                 Don't use vPartition capacity
+      --dc-print                              Print DCs
   -v, --vm-table-print                        Print VM table
       --flatten                               Flatten to single site, repo and workload
       --flatten-site                          Flatten to single cluster per-site
@@ -58,12 +59,14 @@ The RvTools columns used are:
 | vInfo      | powerState   |
 | vInfo      | In Use MiB   |
 | vInfo      | Datacenter   |
-| vInfo      | Cluster      |      |
+| vInfo      | Cluster      |
 | vPartition | VM           |
 | vPartition | powerState   |
 | vPartition | Consumed MiB |
 
-If any of these columns are missing or any of the cells are empty, the tool will not work.
+If any of these columns are missing, the tool will not work.
+
+If any of the Clusters cells are empty they will be shown under an "None" cluster in the results.
 
 ## General Flags
 
@@ -96,6 +99,11 @@ The tool will also use the vPartition capacity figure if it is available for a V
 Using this flag will mean only the vInfo capacity figures will be used.
 
 ```
+--dc-print
+```
+Prints a list of the Datacenters.
+
+```
 --vm-table-print
 ```
 Prints a table of the VMs and their capacity figures. Useful for checking the VMs that are being included.
@@ -111,6 +119,7 @@ This is useful if you want to quickly aggregate all the results into a single Wo
 --flatten-site
 ```
 This flag will flatten the clusters into a single workload per DC (site).
+
 ## Includes and Excludes
 
 You can use include and exclude items from the results using several flags.

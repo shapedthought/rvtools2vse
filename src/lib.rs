@@ -2,7 +2,7 @@ mod excel;
 mod helpers;
 mod models;
 mod vse;
-use std::{fs, io::Write};
+use std::{fs, io::Write, println};
 
 use anyhow::Result;
 use clap::Parser;
@@ -196,6 +196,12 @@ pub fn run() -> Result<()> {
         .sorted()
         .dedup()
         .collect::<Vec<_>>();
+    
+    if cli.dc_print {
+        datacenter_strings
+            .iter()
+            .for_each(|x| println!("{:?}", x))
+    }
 
     let vse = vse_construct(datacenter_strings, &datacenters)?;
 
