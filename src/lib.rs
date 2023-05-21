@@ -217,6 +217,10 @@ pub fn run() -> Result<()> {
 
     println!("Total Capacity: {:.2} TB", total_cap);
 
+    let average_vm = (total_cap * 1024.0) / total_vms as f64;
+
+    println!("Average VM Size: {:.2} GB", average_vm);
+
     if let Some(mut file_name) = cli.output_file {
         if !file_name.contains(".json") {
             file_name.push_str(".json");
