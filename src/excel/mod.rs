@@ -12,7 +12,7 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
 
     let vm_column = get_col_position(&workbook, &"VM".to_string())?;
 
-    let power_column = get_col_position(&workbook, &"VM".to_string())?;
+    let power_column = get_col_position(&workbook, &"Powerstate".to_string())?;
 
     let cap_column = get_col_position(&workbook, &"In Use MiB".to_string())?;
 
