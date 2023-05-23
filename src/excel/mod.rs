@@ -1,9 +1,8 @@
-use calamine::{open_workbook, Reader, Xlsx};
-use crate::helpers::{get_col_position, get_float_value, get_string_value};
-use crate::models::{
-        cli::Cli,
-        rvtools::{Vinfo, Vpartition},
-};
+use helpers::{GetFloatValue, GetStringValue, MyRange};
+use office::Excel;
+
+use crate::helpers;
+use crate::models::{cli::Cli, rvtools::{Vinfo, Vpartition}};
 
 pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Error> {
     let mut excel: Xlsx<_> = open_workbook(cli.rvtools_file.clone())?;
