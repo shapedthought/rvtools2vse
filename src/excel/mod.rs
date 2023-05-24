@@ -1,7 +1,7 @@
-use helpers::{GetFloatValue, GetStringValue, MyRange};
-use office::Excel;
-
 use crate::helpers;
+use helpers::{get_float_value, get_string_value, get_col_position};
+use calamine::{open_workbook, Reader, Xlsx};
+
 use crate::models::{cli::Cli, rvtools::{Vinfo, Vpartition}};
 
 pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Error> {
