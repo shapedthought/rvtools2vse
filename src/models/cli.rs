@@ -17,9 +17,13 @@ pub struct Cli {
     #[clap(short, long, value_parser)]
     pub output_file: Option<String>,
 
-    /// Print converted data
+    /// Print converted data (VSE format)
     #[clap(short, long, action, default_value_t = false)]
     pub print: bool,
+
+    /// Print the VM info to JSON
+    #[clap(long, action, default_value_t = false)]
+    pub print_json: bool,
 
     /// Print DC level summary
     #[clap(short, long, action, default_value_t = false)]

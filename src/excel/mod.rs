@@ -77,7 +77,6 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
             .filter(|x| dc_include.contains(&x.datacenter))
             .collect::<Vec<Vinfo>>();
 
-        println!("Including Datacenters: {:?}", dc_include);
     }
     if let Some(cluster_include) = &cli.cluster_include {
         info_vec = info_vec
@@ -85,7 +84,6 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
             .filter(|x| cluster_include.contains(&x.cluster))
             .collect::<Vec<Vinfo>>();
 
-        println!("Including Clusters: {:?}", cluster_include);
     }
     if let Some(dc_exclude) = &cli.dc_exclude {
         info_vec = info_vec
@@ -93,7 +91,6 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
             .filter(|x| !dc_exclude.contains(&x.datacenter))
             .collect::<Vec<Vinfo>>();
 
-        println!("Excluding Datacenters: {:?}", dc_exclude);
     }
     if let Some(cluster_exclude) = &cli.cluster_exclude {
         info_vec = info_vec
@@ -101,7 +98,6 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
             .filter(|x| !cluster_exclude.contains(&x.cluster))
             .collect::<Vec<Vinfo>>();
 
-        println!("Excluding Clusters: {:?}", cluster_exclude);
     }
     if let Some(vm_exclude) = &cli.vm_exclude {
         info_vec = info_vec
@@ -109,7 +105,6 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
             .filter(|x| !vm_exclude.contains(&x.vm_name))
             .collect::<Vec<Vinfo>>();
 
-        println!("Excluding VMs: {:?}", vm_exclude);
     }
     let mut part_vec: Vec<Vpartition> = Vec::new();
     for row in partition.rows().enumerate().skip(1) {

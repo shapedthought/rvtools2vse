@@ -1,4 +1,6 @@
-#[derive(Debug, Clone)]
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
 pub struct Vinfo {
     pub vm_name: String,
     pub datacenter: String,
@@ -13,7 +15,7 @@ pub struct Vpartition {
     pub capacity: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Datacenter {
     pub name: String,
     pub cluster: String,

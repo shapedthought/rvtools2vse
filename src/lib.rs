@@ -208,19 +208,26 @@ pub fn run() -> Result<()> {
     if cli.print {
         println!("{:#?}", vse);
     }
+    
+    if cli.print_json {
+        let combined_json = serde_json::to_string_pretty(&combined)?;
+        println!("{}", combined_json);
+    }
 
-    // total vms
-    let total_vms = combined.len();
-    println!("Total VMs: {}", total_vms);
+    if !cli.print_json {
+        let total_vms = combined.len();
+        println!("Total VMs: {}", total_vms);
 
-    let total_cap = datacenters.iter().fold(0.0, |acc, x| acc + x.capacity);
+        let total_cap = datacenters.iter().fold(0.0, |acc, x| acc + x.capacity);
 
-    println!("Total Capacity: {:.2} TB", total_cap);
+        println!("Total Capacity: {:.2} TB", total_cap);
 
-    let average_vm = (total_cap * 1024.0) / total_vms as f64;
+        let average_vm = (total_cap * 1024.0) / total_vms as f64;
 
-    println!("Average VM Size: {:.2} GB", average_vm);
-
+        println!("Average VM Size: {:.2} GB", average_vm);
+   
+    }
+    
     if let Some(mut file_name) = cli.output_file {
         if !file_name.contains(".json") {
             file_name.push_str(".json");

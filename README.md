@@ -83,6 +83,11 @@ In normal operation, the powered-off VMs will be excluded; using this flag will 
 Print will display the struct representation of the file to the terminal.
 
 ```
+--print-json
+```
+This will print to the screen the current RVTools data in JSON format with all filters applied. 
+
+```
 -s / --show-info
 ```
 This will print a table of the DC-level information, including cluster, capacity and VM count.
