@@ -1,5 +1,5 @@
 use crate::helpers;
-use helpers::{get_float_value, get_string_value, get_col_position};
+use helpers::{get_float_value, get_string_value, ColPosition};
 use calamine::{open_workbook, Reader, Xlsx};
 
 use crate::models::{cli::Cli, rvtools::{Vinfo, Vpartition}};
@@ -9,23 +9,39 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
 
     let workbook = excel.worksheet_range("vInfo").unwrap().unwrap();
 
-    let vm_column = get_col_position(&workbook, &"VM".to_string())?;
+    //let vm_column = get_col_position(&workbook, &"VM".to_string())?;
 
-    let power_column = get_col_position(&workbook, &"Powerstate".to_string())?;
+    let vm_column = workbook.get_col_pos(&"VM".to_string())?;
 
-    let cap_column = get_col_position(&workbook, &"In Use MiB".to_string())?;
+    //let power_column = get_col_position(&workbook, &"Powerstate".to_string())?;
 
-    let dc_column = get_col_position(&workbook, &"Datacenter".to_string())?;
+    let power_column = workbook.get_col_pos(&"Powerstate".to_string())?;
 
-    let cluster_column = get_col_position(&workbook, &"Cluster".to_string())?;
+    // let cap_column = get_col_position(&workbook, &"In Use MiB".to_string())?;
+
+    let cap_column = workbook.get_col_pos(&"In Use MiB".to_string())?;
+
+    // let dc_column = get_col_position(&workbook, &"Datacenter".to_string())?;
+
+    let dc_column = workbook.get_col_pos(&"Datacenter".to_string())?;
+
+    // let cluster_column = get_col_position(&workbook, &"Cluster".to_string())?;
+
+    let cluster_column = workbook.get_col_pos(&"Cluster".to_string())?;
 
     let partition = excel.worksheet_range("vPartition").unwrap().unwrap();
 
-    let part_vm_column = get_col_position(&partition, &"VM".to_string())?;
+    // let part_vm_column = get_col_position(&partition, &"VM".to_string())?;
 
-    let part_power_column = get_col_position(&partition, &"Powerstate".to_string())?;
+    let part_vm_column = partition.get_col_pos(&"VM".to_string())?;
 
-    let part_cap_column = get_col_position(&partition, &"Consumed MiB".to_string())?;
+    // let part_power_column = get_col_position(&partition, &"Powerstate".to_string())?;
+    
+    let part_power_column = partition.get_col_pos(&"Powerstate".to_string())?;
+
+    // let part_cap_column = get_col_position(&partition, &"Consumed MiB".to_string())?;
+
+    let part_cap_column = partition.get_col_pos(&"Consumed MiB".to_string())?;
 
     let mut info_vec: Vec<Vinfo> = Vec::new();
     for row in workbook.rows().enumerate().skip(1) {
