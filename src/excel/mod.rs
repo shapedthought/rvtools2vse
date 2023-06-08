@@ -1,8 +1,11 @@
 use crate::helpers;
-use helpers::{ColPosition, GetFloat, GetString};
 use calamine::{open_workbook, Reader, Xlsx};
+use helpers::{ColPosition, GetFloat, GetString};
 
-use crate::models::{cli::Cli, rvtools::{Vinfo, Vpartition}};
+use crate::models::{
+    cli::Cli,
+    rvtools::{Vinfo, Vpartition},
+};
 
 pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Error> {
     let mut excel: Xlsx<_> = open_workbook(cli.rvtools_file.clone())?;
@@ -29,31 +32,24 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
 
     let mut info_vec: Vec<Vinfo> = Vec::new();
     for row in workbook.rows().enumerate().skip(1) {
-        
-        let power_state = &row.1[power_column].get_string_value("vInfo - column Powerstate vInfo".to_string(),
-            row.0 + 1,
-        )?;
-        
+        let power_state = &row.1[power_column]
+            .get_string_value("vInfo - column Powerstate vInfo".to_string(), row.0 + 1)?;
+
         if power_state.contains("poweredOff") && !cli.include_powered_off {
             continue;
         }
 
+        let vm_name =
+            &row.1[vm_column].get_string_value("vInfo - column 'VM'".to_string(), row.0 + 1)?;
 
-        let vm_name = &row.1[vm_column].get_string_value("vInfo - column 'VM'".to_string(),
-            row.0 + 1,
-        )?;
+        let cap = &row.1[cap_column]
+            .get_float_value("vInfo - column 'Capacity MiB'".to_string(), row.0 + 1)?;
 
-        let cap = &row.1[cap_column].get_float_value("vInfo - column 'Capacity MiB'".to_string(),
-            row.0 + 1,
-        )?;
+        let dc = &row.1[dc_column]
+            .get_string_value("vInfo - column 'Datacenter'".to_string(), row.0 + 1)?;
 
-        let dc = &row.1[dc_column].get_string_value("vInfo - column 'Datacenter'".to_string(),
-            row.0 + 1,
-        )?;
-
-        let cluster = &row.1[cluster_column].get_string_value("vInfo - column 'Cluster'".to_string(),
-            row.0 + 1,
-        )?;
+        let cluster = &row.1[cluster_column]
+            .get_string_value("vInfo - column 'Cluster'".to_string(), row.0 + 1)?;
 
         info_vec.push(Vinfo {
             vm_name: vm_name.to_string(),
@@ -68,49 +64,45 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
             .into_iter()
             .filter(|x| dc_include.contains(&x.datacenter))
             .collect::<Vec<Vinfo>>();
-
     }
     if let Some(cluster_include) = &cli.cluster_include {
         info_vec = info_vec
             .into_iter()
             .filter(|x| cluster_include.contains(&x.cluster))
             .collect::<Vec<Vinfo>>();
-
     }
     if let Some(dc_exclude) = &cli.dc_exclude {
         info_vec = info_vec
             .into_iter()
             .filter(|x| !dc_exclude.contains(&x.datacenter))
             .collect::<Vec<Vinfo>>();
-
     }
     if let Some(cluster_exclude) = &cli.cluster_exclude {
         info_vec = info_vec
             .into_iter()
             .filter(|x| !cluster_exclude.contains(&x.cluster))
             .collect::<Vec<Vinfo>>();
-
     }
     if let Some(vm_exclude) = &cli.vm_exclude {
         info_vec = info_vec
             .into_iter()
             .filter(|x| !vm_exclude.contains(&x.vm_name))
             .collect::<Vec<Vinfo>>();
-
     }
     let mut part_vec: Vec<Vpartition> = Vec::new();
     for row in partition.rows().enumerate().skip(1) {
-        
-        let power_state = &row.1[part_power_column].get_string_value("vParition - column 'Powerstate'".to_string(), row.0 + 1)?;
+        let power_state = &row.1[part_power_column]
+            .get_string_value("vParition - column 'Powerstate'".to_string(), row.0 + 1)?;
 
         if power_state.contains("poweredOff") && !cli.include_powered_off {
             continue;
         }
- 
-        let vm_name = &row.1[part_vm_column].get_string_value("vParition - column 'VM'".to_string(), row.0 + 1)?;
 
-        let cap = &row.1[part_cap_column].get_float_value("vParition - column 'Capacity MiB'".to_string(), row.0 + 1)?;
-        
+        let vm_name = &row.1[part_vm_column]
+            .get_string_value("vParition - column 'VM'".to_string(), row.0 + 1)?;
+
+        let cap = &row.1[part_cap_column]
+            .get_float_value("vParition - column 'Capacity MiB'".to_string(), row.0 + 1)?;
 
         part_vec.push(Vpartition {
             vm_name: vm_name.to_string(),

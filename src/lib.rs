@@ -21,6 +21,7 @@ use crate::{
     },
     vse::vse_construct,
 };
+use std::collections::HashMap;
 
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
@@ -44,30 +45,32 @@ pub fn run() -> Result<()> {
         .collect();
 
     let mut combined: Vec<Vinfo> = Vec::new();
+    let mut group_map = HashMap::new();
+
+    for (i, j) in grouped.iter().enumerate() {
+        group_map.insert(j.vm_name.clone(), i);
+    }
 
     if !cli.do_not_use_vpartition {
         for i in &info_vec {
-            let mut found_match = false;
-            for j in &grouped {
-                if i.vm_name == j.vm_name {
-                    let low_cap = f64::min(i.capacity, j.capacity);
-                    let new_st = Vinfo {
-                        vm_name: i.vm_name.clone(),
-                        datacenter: i.datacenter.clone(),
-                        cluster: i.cluster.clone(),
-                        capacity: low_cap,
-                        powerstate: i.powerstate.clone(),
-                    };
-                    combined.push(new_st);
-                    found_match = true;
-                }
-            }
-            if !found_match {
-                combined.push(i.clone())
+            if let Some(&j_idx) = group_map.get(&i.vm_name) {
+                let j = &grouped[j_idx];
+                let low_cap = f64::min(i.capacity, j.capacity);
+
+                let new_st = Vinfo {
+                    vm_name: i.vm_name.clone(),
+                    datacenter: i.datacenter.clone(),
+                    cluster: i.cluster.clone(),
+                    capacity: low_cap,
+                    powerstate: i.powerstate.clone(),
+                };
+                combined.push(new_st);
+            } else {
+                combined.push(i.clone());
             }
         }
     } else {
-        combined = info_vec.clone();
+        combined = info_vec.clone()
     }
 
     let mut datacenters: Vec<Datacenter> = Vec::new();
@@ -196,11 +199,9 @@ pub fn run() -> Result<()> {
         .sorted()
         .dedup()
         .collect::<Vec<_>>();
-    
+
     if cli.dc_print {
-        datacenter_strings
-            .iter()
-            .for_each(|x| println!("{:?}", x))
+        datacenter_strings.iter().for_each(|x| println!("{:?}", x))
     }
 
     let vse = vse_construct(datacenter_strings, &datacenters)?;
@@ -208,7 +209,7 @@ pub fn run() -> Result<()> {
     if cli.print {
         println!("{:#?}", vse);
     }
-    
+
     if cli.print_json {
         let combined_json = serde_json::to_string_pretty(&combined)?;
         println!("{}", combined_json);
@@ -225,9 +226,8 @@ pub fn run() -> Result<()> {
         let average_vm = (total_cap * 1024.0) / total_vms as f64;
 
         println!("Average VM Size: {:.2} GB", average_vm);
-   
     }
-    
+
     if let Some(mut file_name) = cli.output_file {
         if !file_name.contains(".json") {
             file_name.push_str(".json");

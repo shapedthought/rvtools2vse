@@ -32,14 +32,14 @@ pub trait GetString {
 
 impl GetString for DataType {
     fn get_string_value(&self, item: String, row: usize) -> Result<String, MyError> {
-     match self {
-        DataType::String(t) => Ok(t.to_string()),
-        DataType::Empty => Ok("None".to_string()),
-        _ => Err(MyError::EnumToString(format!(
-            "{} - row {} - Datatype {:?}",
-            item, row, self
-        ))),
-    }
+        match self {
+            DataType::String(t) => Ok(t.to_string()),
+            DataType::Empty => Ok("None".to_string()),
+            _ => Err(MyError::EnumToString(format!(
+                "{} - row {} - Datatype {:?}",
+                item, row, self
+            ))),
+        }
     }
 }
 
@@ -57,7 +57,6 @@ impl GetFloat for DataType {
                 "{} - row {} - Datatype {:?}",
                 item, row, self
             ))),
-    } 
+        }
     }
 }
-
