@@ -80,6 +80,12 @@ pub fn vse_construct(
                 "bw12".to_string(),
             );
 
+            let copies = Backup::new(
+                "".to_string(),
+                "".to_string(),
+                "".to_string(),
+            );
+
             Workload::new(
                 format!("{}_workload", x.cluster),
                 true,
@@ -92,7 +98,7 @@ pub fn vse_construct(
                 "dpopt".to_string(),
                 backup,
                 false,
-                None,
+                copies,
             )
         })
         .collect::<Vec<Workload>>();

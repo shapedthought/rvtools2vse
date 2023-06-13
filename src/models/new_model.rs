@@ -98,7 +98,7 @@ pub struct Workload {
     pub data_property_id: String,
     pub backup: Backup,
     pub copies_enabled: bool,
-    pub copies: Option<Copy>,
+    pub copies: Backup
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, new)]
