@@ -116,3 +116,9 @@ pub struct Copy {
     pub repo_id: String,
     pub backup_window_id: String,
 }
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, new)]
+pub struct Mapper {
+    pub group_name: String,
+    pub dc_names: Vec<String>,
+}
