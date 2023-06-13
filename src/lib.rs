@@ -17,7 +17,7 @@ use crate::{
     excel::get_excel,
     models::{
         cli::Cli,
-        rvtools::{Datacenter, Vinfo, Vpartition},
+        rvtools::{Datacenter, Vinfo, Vpartition}, new_model::Mapper,
     },
     vse::vse_construct,
 };
@@ -76,7 +76,7 @@ pub fn run() -> Result<()> {
     let mut datacenters: Vec<Datacenter> = Vec::new();
 
     // Flattens the DC results into single clusters
-    if cli.flatten_site && !cli.flatten {
+    if cli.flatten_site && !cli.flatten  && cli.dc_site_map.is_none() {
         combined
             .iter()
             .sorted_by_key(|s| &s.datacenter)
@@ -120,7 +120,7 @@ pub fn run() -> Result<()> {
             });
     }
 
-    if cli.flatten && !cli.flatten_site {
+    if cli.flatten && !cli.flatten_site && cli.dc_site_map.is_none() {
         let vm_count: usize = datacenters.iter().map(|x| x.vm_count).sum();
         let capacity: f64 = datacenters.iter().map(|x| x.capacity).sum();
 
@@ -132,6 +132,42 @@ pub fn run() -> Result<()> {
             vm_count,
             capacity,
         })
+    }
+
+    if let Some(dc_map) = cli.dc_site_map {
+
+        let mapper_file = fs::read_to_string(dc_map)?;
+        let dc_map: Vec<Mapper> = serde_json::from_str(&mapper_file)?;
+
+        let mut temp_dc: Vec<Datacenter> = Vec::new();
+        dc_map.iter().for_each(|map_item| {
+            let mut cap = 0.0;
+            let mut vm_count = 0;
+            
+            map_item.dc_names.iter().for_each(|site| {
+                let dc_cap: f64 = datacenters
+                    .iter()
+                    .filter(|x| x.name.contains(&*site))
+                    .map(|x| x.capacity)
+                    .sum();
+                let dc_vm_count: usize = datacenters
+                    .iter()
+                    .filter(|x| x.name.contains(&*site))
+                    .map(|x| x.vm_count)
+                    .sum();
+                cap += dc_cap;
+                vm_count += dc_vm_count;
+            });
+
+            temp_dc.push(Datacenter {
+                name: map_item.group_name.clone(),
+                cluster: format!("{}_cluster", map_item.group_name),
+                vm_count,
+                capacity: cap,
+            })
+        });
+
+        datacenters = temp_dc;
     }
 
     if cli.show_info {
@@ -201,7 +237,7 @@ pub fn run() -> Result<()> {
         .collect::<Vec<_>>();
 
     if cli.dc_print {
-        datacenter_strings.iter().for_each(|x| println!("{:?}", x))
+        datacenter_strings.iter().for_each(|x| println!("{:?},", x))
     }
 
     let vse = vse_construct(datacenter_strings, &datacenters)?;
