@@ -4,10 +4,10 @@ use helpers::{ColPosition, GetFloat, GetString};
 
 use crate::models::{
     cli::Cli,
-    rvtools::{Vinfo, Vpartition},
+    rvtools::{Vinfo, Vpartition, Vdisk},
 };
 
-pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Error> {
+pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>, Vec<Vdisk>), anyhow::Error> {
     let mut excel: Xlsx<_> = open_workbook(cli.rvtools_file.clone())?;
 
     let workbook = excel.worksheet_range("vInfo").unwrap().unwrap();
@@ -26,9 +26,19 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
 
     let part_vm_column = partition.get_col_pos(&"VM".to_string())?;
 
+    let part_cap_column = partition.get_col_pos(&"Consumed MiB".to_string())?;
+
     let part_power_column = partition.get_col_pos(&"Powerstate".to_string())?;
 
-    let part_cap_column = partition.get_col_pos(&"Consumed MiB".to_string())?;
+    let disk = excel.worksheet_range("vDisk").unwrap().unwrap();
+
+    let disk_vm_column = disk.get_col_pos(&"VM".to_string())?;
+
+    // let disk_power_column = disk.get_col_pos(&"Powerstate".to_string())?;
+
+    let disk_cap_column = disk.get_col_pos(&"Capacity MiB".to_string())?;
+
+    let disk_comp_column = disk.get_col_pos(&"Raw Comp. Mode".to_string())?;
 
     let mut info_vec: Vec<Vinfo> = Vec::new();
     for row in workbook.rows().enumerate().skip(1) {
@@ -109,5 +119,27 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), anyhow::Err
             capacity: *cap,
         })
     }
-    Ok((info_vec, part_vec))
+
+    let mut disk_vec: Vec<Vdisk> = Vec::new();
+    for row in disk.rows().enumerate().skip(1) {
+
+        let comp = &row.1[disk_comp_column]
+            .get_string_value("vDisk - column 'Raw Comp. Mode'".to_string(), row.0 + 1)?;
+
+        if !comp.contains("physicalMode") {
+            continue;
+        }
+
+        let vm_name = &row.1[disk_vm_column]
+            .get_string_value("vDisk - column 'VM'".to_string(), row.0 + 1)?;
+
+        let cap = &row.1[disk_cap_column]
+            .get_float_value("vDisk - column 'Capacity MiB'".to_string(), row.0 + 1)?;
+
+        disk_vec.push(Vdisk {
+            vm_name: vm_name.to_string(),
+            capacity: *cap,
+        })
+    }
+    Ok((info_vec, part_vec, disk_vec))
 }

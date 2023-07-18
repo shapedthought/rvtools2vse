@@ -76,4 +76,8 @@ pub struct Cli {
     /// Flatten to single cluster per-site
     #[clap(long, action, default_value_t = false)]
     pub flatten_site: bool,
+
+    /// Keep the RDM disks
+    #[clap(long, action, default_value_t = false)]
+    pub keep_rdm: bool,
 }

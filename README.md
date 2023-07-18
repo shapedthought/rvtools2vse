@@ -56,20 +56,35 @@ This also applies to the vPartition "Capacity MiB" ("Capacity MB" in older versi
 
 The RvTools columns used are:
 
-| Sheet      | Column       |
-| ---------- | ------------ |
-| vInfo      | VM           |
-| vInfo      | powerState   |
-| vInfo      | In Use MiB   |
-| vInfo      | Datacenter   |
-| vInfo      | Cluster      |
-| vPartition | VM           |
-| vPartition | powerState   |
-| vPartition | Consumed MiB |
+| Sheet      | Column         |
+| ---------- | -------------- |
+| vInfo      | VM             |
+| vInfo      | powerState     |
+| vInfo      | In Use MiB     |
+| vInfo      | Datacenter     |
+| vInfo      | Cluster        |
+| vPartition | VM             |
+| vPartition | powerState     |
+| vPartition | Consumed MiB   |
+| vDisk      | VM             |
+| vDisk      | Capacity MiB   |
+| vDisk      | Raw Comp. Mode |
 
 If any of these columns are missing, the tool will not work.
 
 If any of the Clusters cells are empty they will be shown under an "None" cluster in the results.
+
+## RDMs
+
+The tool by default will filter out any VM that has an RDM in Physical Mode attached. You will need to manually add these to the VSE sizer. However, the tool will print out relevant information to help you do this.
+
+The reason for this is that in many cases RDM are shared between VMs so manual analysis is required.
+
+You can override this behavior using following flag:
+
+```
+--keep-rdm
+```
 
 ## General Flags
 

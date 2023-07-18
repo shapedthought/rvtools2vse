@@ -26,7 +26,7 @@ use std::collections::HashMap;
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    let (info_vec, part_vec) = get_excel(&cli)?;
+    let (info_vec, part_vec, disk_vec) = get_excel(&cli)?;
 
     let devisor = 1024_f64.powf(2.0);
 
@@ -45,29 +45,48 @@ pub fn run() -> Result<()> {
         .collect();
 
     let mut combined: Vec<Vinfo> = Vec::new();
+    let mut vdisk_map = HashMap::new();
     let mut group_map = HashMap::new();
 
+    // Create a map of the VMs that are in the vDisks vector
+    if !cli.keep_rdm {
+        for (i, j) in disk_vec.iter().enumerate() {
+            vdisk_map.insert(j.vm_name.clone(), i);
+        }
+
+        println!("RDMs in physical mode found, filtering!");
+        let vm_names = vdisk_map.keys().collect::<Vec<&String>>();
+        println!("{:?}", vm_names);
+        println!("Physical Mode VM count: {:#?}", vm_names.len());
+        println!("Physical Mode vDisks count: {:#?}", disk_vec.len());
+        let vdisk_cap = disk_vec.iter().map(|x| x.capacity).sum::<f64>();
+        println!("Physical Mode vDisks capacity: {:.2}TB - NOTE: capacity maybe shared between VMs! \n", vdisk_cap  / 1024_f64.powf(2.0));
+    }
+
+    // Do not add those disks to the vPartition vector
     for (i, j) in grouped.iter().enumerate() {
         group_map.insert(j.vm_name.clone(), i);
     }
 
     if !cli.do_not_use_vpartition {
         for i in &info_vec {
-            if let Some(&j_idx) = group_map.get(&i.vm_name) {
-                let j = &grouped[j_idx];
-                let low_cap = f64::min(i.capacity, j.capacity);
+            if let None = vdisk_map.get(&i.vm_name) {
+                if let Some(&j_idx) = group_map.get(&i.vm_name) {
+                    let j = &grouped[j_idx];
+                    let low_cap = f64::min(i.capacity, j.capacity);
 
-                let new_st = Vinfo {
-                    vm_name: i.vm_name.clone(),
-                    datacenter: i.datacenter.clone(),
-                    cluster: i.cluster.clone(),
-                    capacity: low_cap,
-                    powerstate: i.powerstate.clone(),
-                };
-                combined.push(new_st);
-            } else {
-                combined.push(i.clone());
-            }
+                    let new_st = Vinfo {
+                        vm_name: i.vm_name.clone(),
+                        datacenter: i.datacenter.clone(),
+                        cluster: i.cluster.clone(),
+                        capacity: low_cap,
+                        powerstate: i.powerstate.clone(),
+                    };
+                    combined.push(new_st);
+                } else {
+                    combined.push(i.clone());
+                }
+        }
         }
     } else {
         combined = info_vec.clone()

@@ -15,6 +15,12 @@ pub struct Vpartition {
     pub capacity: f64,
 }
 
+#[derive(Debug, Clone)]
+pub struct Vdisk {
+    pub vm_name: String,
+    pub capacity: f64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Datacenter {
     pub name: String,
