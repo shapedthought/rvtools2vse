@@ -7,7 +7,11 @@ use clap::Parser;
 pub struct Cli {
     /// RVTools File
     #[clap(short, long, value_parser)]
-    pub rvtools_file: PathBuf,
+    pub rvtools_file: Option<PathBuf>,
+
+    /// RvTools Files
+    #[clap(long, value_delimiter = ',', num_args = 1..)]
+    pub rvtools_files: Option<Vec<PathBuf>>,
 
     /// Include Powered Off VMs
     #[clap(short, long, action, default_value_t = false)]

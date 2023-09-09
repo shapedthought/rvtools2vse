@@ -13,6 +13,8 @@ pub struct NewVse {
     pub windows: Vec<Window>,
     pub retentions: Vec<Retentions>,
     pub workloads: Vec<Workload>,
+    pub workload_nas: Vec<WorkloadNas>,
+    pub rounding: String,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, new)]
@@ -33,12 +35,12 @@ pub struct PerfTierRepo {
     pub archive_tier_enabled: bool,
     pub capacity_tier_days: i64,
     pub archive_tier_days: i64,
-    // pub archive_tier_standalone: bool,
     pub capacity_tier_repo_id: String,
     pub archive_tier_repo_id: String,
     pub storage_type: String,
     pub immutable_perf: bool,
     pub immutable_cap: bool,
+    pub archive_tier_standalone: bool,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, new)]
@@ -121,4 +123,19 @@ pub struct Copy {
 pub struct Mapper {
     pub group_name: String,
     pub dc_names: Vec<String>,
+}
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, new)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkloadNas {
+    pub backup: Backup,
+    pub copies: Copy,
+    pub files: i32,
+    pub copies_enabled: bool,
+    pub data_property_id: String,
+    pub site_id: String,
+    #[serde(rename = "sourceTB")]
+    pub source_tb: f64,
+    pub workload_id: String,
+    pub workload_name: String,
+    pub io_control: bool,
 }

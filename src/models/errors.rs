@@ -9,4 +9,12 @@ pub enum MyError {
     EnumToFloat(String),
     #[error("Could not get position of column: {0}")]
     ColumnPosition(String),
+    #[error("Error with excel file")]
+    ExcelError(#[from] calamine::XlsxError),
+    #[error("Error with vInfo sheet")]
+    VinfoError(String),
+    #[error("Error with vPartition sheet")]
+    VpartitionError(String),
+    #[error("RvTools selection error")]
+    RvtoolsError(String),
 }

@@ -34,6 +34,7 @@ pub fn vse_construct(
                 "xfsRefs".to_string(),
                 false,
                 false,
+                false,
             )
         })
         .collect::<Vec<PerfTierRepo>>();
@@ -112,5 +113,7 @@ pub fn vse_construct(
         vec![window],
         vec![retention],
         workloads,
+        vec![],
+        "Millions".to_string(),
     ))
 }

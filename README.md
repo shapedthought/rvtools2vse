@@ -1,6 +1,8 @@
 # rvtools2vse
 
-Tool to convert RVTools output to VSE format
+Tool to convert RVTools output to VSE format.
+
+Updated to work with the VSE v0.11.0 format.
 
 ## Installation
 
@@ -29,6 +31,7 @@ Usage: rvtools2vse.exe [OPTIONS] --rvtools-file <RVTOOLS_FILE>
 
 Options:
   -r, --rvtools-file <RVTOOLS_FILE>           RVTools File
+      --rvtools-files <RVTOOLS_FILES>...      RvTools Files
   -i, --include-powered-off                   Include Powered Off VMs
   -o, --output-file <OUTPUT_FILE>             Output File [Optional]
   -p, --print                                 Print converted data (VSE format)
@@ -67,11 +70,31 @@ The RvTools columns used are:
 | vPartition | powerState   |
 | vPartition | Consumed MiB |
 
-If any of these columns are missing, the tool will not work.
+If any of these columns are missing, the tool will not work. The exception to this is if you use the -d flag, which will ignore the vPartition tab.
 
 If any of the Clusters cells are empty they will be shown under an "None" cluster in the results.
 
 ## General Flags
+
+Select the file or files to read with the following:
+
+File
+
+```
+-r / --rvtools-file
+```
+
+Files
+
+```
+--rvtools-files rvtools1.xlsx,rvtools2.xlsx
+```
+
+Note that the delimiter is a comma. If there are spaces in the file names, you will need to enclose them in quotes, and pass them at the beginning of the list.
+
+```
+--rvtools-files "rvtools 1.xlsx",rvtools2.xlsx
+```
 
 You can modify the output file using different flags.
 
@@ -149,7 +172,7 @@ You can use include and exclude items from the results using several flags.
 | --cluster-exclude | Excluded Clusters |
 | --vm-exclude      | Excluded VMs      |
 
-The lists that are passed need to be sperated by a comma.
+The lists that are passed need to be separated by a comma.
 
 ```
 rvtools2vse -r rvtools.xlsx --dc-include dc1,dc2
@@ -190,8 +213,21 @@ NOTE: There aren't any checks to make sure the DC names are valid, so if you pas
 
 ## Full Example
 
+## Full Examples
+
 ```
 rvtools2vse -r rvtools.xlsx \
+--include-powered-off \
+--do-not-use-vpartition  \
+--dc-exclude dc1 \
+--cluster-exclude cluster1,cluster2 \
+--vm-exclude vm1,vm2 \
+--print \
+--output-file vse_rvtools.json
+```
+
+```
+rvtools2vse --rvtools_files rvtools1.xlsx,rvtools2 \
 --include-powered-off \
 --do-not-use-vpartition  \
 --dc-exclude dc1 \
