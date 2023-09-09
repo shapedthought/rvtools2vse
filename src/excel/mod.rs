@@ -11,21 +11,18 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
     
     let mut excel_vec: Vec<Xlsx<_>> = Vec::new();
 
-    if cli.rvtools_files.is_some() {
-        for file in cli.rvtools_files.clone().unwrap() {
-            let new_excel: Xlsx<_> = open_workbook(file)?;
-            excel_vec.push(new_excel);
-        }
-    } else {
-        if cli.rvtools_file.is_none() {
-            return Err(MyError::RvtoolsError(
-                "No RVTools file or files specified".to_string(),
-            ));
-        } else {
-            let excel: Xlsx<_> = open_workbook(cli.rvtools_file.clone().unwrap())?;
-            excel_vec.push(excel);
-        }
+    if cli.rvtools_files.len() == 0 {
+        return Err(MyError::RvtoolsError(
+            "No RVTools file or files specified".to_string(),
+        ));
     }
+
+
+    for file in &cli.rvtools_files {
+        let new_excel: Xlsx<_> = open_workbook(file)?;
+        excel_vec.push(new_excel);
+    }
+
 
     let mut info_vec: Vec<Vinfo> = Vec::new();
     let mut part_vec: Vec<Vpartition> = Vec::new();

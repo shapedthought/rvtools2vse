@@ -5,13 +5,9 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 pub struct Cli {
-    /// RVTools File
-    #[clap(short, long, value_parser)]
-    pub rvtools_file: Option<PathBuf>,
-
-    /// RvTools Files
-    #[clap(long, value_delimiter = ',', num_args = 1..)]
-    pub rvtools_files: Option<Vec<PathBuf>>,
+    /// RvTools File(s)
+    #[clap(short, long, value_delimiter = ',', num_args = 1..)]
+    pub rvtools_files: Vec<PathBuf>,
 
     /// Include Powered Off VMs
     #[clap(short, long, action, default_value_t = false)]

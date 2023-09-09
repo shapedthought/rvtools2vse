@@ -2,7 +2,11 @@
 
 Tool to convert RVTools output to VSE format.
 
-Updated to work with the VSE v0.11.0 format.
+Recent updates:
+
+- Updated to work with the VSE v0.11.0 format
+- Multiple RVTools files can be passed in
+- vPartition tab is ignored if the -d flag is passed, allows for the tab to be missing
 
 ## Installation
 
@@ -30,11 +34,10 @@ cargo uninstall rvtools2vse
 Usage: rvtools2vse.exe [OPTIONS] --rvtools-file <RVTOOLS_FILE>
 
 Options:
-  -r, --rvtools-file <RVTOOLS_FILE>           RVTools File
-      --rvtools-files <RVTOOLS_FILES>...      RvTools Files
+  -r, --rvtools-files <RVTOOLS_FILES>...      RvTools File(s)
   -i, --include-powered-off                   Include Powered Off VMs
   -o, --output-file <OUTPUT_FILE>             Output File [Optional]
-  -p, --print                                 Print converted data (VSE format)
+  -p, --print                                 Print converted data (VSE JSON format)
       --print-json                            Print the VM info to JSON
   -s, --show-info                             Print DC level summary
       --dc-include <DC_INCLUDE>...            DC include list
@@ -78,25 +81,21 @@ If any of the Clusters cells are empty they will be shown under an "None" cluste
 
 Select the file or files to read with the following:
 
-File
-
 ```
--r / --rvtools-file
-```
+-r rvtools1.xlsx
 
-Files
-
-```
---rvtools-files rvtools1.xlsx,rvtools2.xlsx
+-r rvtools1.xlsx,rvtools2.xlsx
 ```
 
-Note that the delimiter is a comma. If there are spaces in the file names, you will need to enclose them in quotes, and pass them at the beginning of the list.
+Note that the delimiter is a comma.
+
+Also, if there are spaces in the file names, you will need to enclose them in quotes, and pass them at the beginning of the list.
 
 ```
---rvtools-files "rvtools 1.xlsx",rvtools2.xlsx
+-r "rvtools 1.xlsx",rvtools2.xlsx
 ```
 
-You can modify the output file using different flags.
+You can modify the output file using different flags (powered off VMs are excluded by default).
 
 ```
 -i / --include-powered-off
@@ -130,7 +129,7 @@ This can be run alone with only the RVTools file specified. It will not create a
 -d / --do-not-use-vpartition
 ```
 
-The tool will also use the vPartition capacity figure if it is available for a VM which normally reduces the capacity.
+The tool will also use the vPartition capacity figure for a VM which normally reduces the capacity in normal use.
 
 Using this flag will mean only the vInfo capacity figures will be used.
 
@@ -197,12 +196,12 @@ The structure of the json file is:
 ```
 [
   {
-  "group_name": "DC1",
-  "dc_names": ["site1", "site2"]
+    "group_name": "DC1",
+    "dc_names": ["site1", "site2"]
   },
   {
-  "group_name": "DC2",
-  "dc_names": ["site3", "site4"]
+    "group_name": "DC2",
+    "dc_names": ["site3", "site4"]
   }
 ]
 ```
@@ -211,14 +210,12 @@ You can get the full list of the DC by using the --dc-print flag.
 
 NOTE: There aren't any checks to make sure the DC names are valid, so if you pass in a DC name that doesn't exist it will be ignored.
 
-## Full Example
-
 ## Full Examples
 
 ```
 rvtools2vse -r rvtools.xlsx \
 --include-powered-off \
---do-not-use-vpartition  \
+--do-not-use-vpartition \
 --dc-exclude dc1 \
 --cluster-exclude cluster1,cluster2 \
 --vm-exclude vm1,vm2 \
@@ -227,12 +224,8 @@ rvtools2vse -r rvtools.xlsx \
 ```
 
 ```
-rvtools2vse --rvtools_files rvtools1.xlsx,rvtools2 \
---include-powered-off \
---do-not-use-vpartition  \
---dc-exclude dc1 \
---cluster-exclude cluster1,cluster2 \
---vm-exclude vm1,vm2 \
+rvtools2vse -r rvtools1.xlsx,rvtools2 \
+--dc_site_map mapping.json
 --print \
 --output-file vse_rvtools.json
 ```
@@ -256,8 +249,8 @@ The tool in normal use will read the vPartition tab, group all the partitions fo
 
 ```
 VM1 100GB
-  Partition1 50GB
-  Partition2 50GB
+Partition1 50GB
+Partition2 50GB
 ```
 
 The tool then goes through all the vInfo VMs, and where there is a match on the VM name and the vParition value is lower than the vInfo value, the vParition value is used.
@@ -266,4 +259,4 @@ The tool then goes through all the vInfo VMs, and where there is a match on the 
 
 You may find that the tool cannot find the "vInfo" or "vParition" tabs, to solve this open the file and rename the tabs and save the file.
 
-I do not know why this happends, but I assume that it has something to do with the underlying XML file not being updated with the tab name.
+I do not know why this happens, but I assume that it has something to do with the underlying XML file not being updated with the tab name.
