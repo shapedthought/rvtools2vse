@@ -179,6 +179,12 @@ This flag will plot the site-level capacity figures in a bar chart (filtering va
 
 It doesn't really help much, but it looks cool, and was fun to write!
 
+```
+-o / --output-file vse_rvtools
+```
+
+This will create a VSE file with the name specified.
+
 ## Includes and Excludes
 
 You can use include and exclude items from the results using several flags.
