@@ -7,6 +7,9 @@ Recent updates:
 - Updated to work with the VSE v0.11.0 format
 - Multiple RVTools files can be passed in
 - If vPartition tab is missing it will it will continue to use the vInfo capacity figures only
+- Added --dc-site-map-template flag to create a template JSON file for the DC site map
+- Added --plot flag to plot the site-level capacity figures in a bar chart
+- Added --retention flag to set a custom retention for all workloads
 
 ## Installation
 
@@ -36,8 +39,9 @@ Usage: rvtools2vse.exe [OPTIONS] --rvtools-file <RVTOOLS_FILE>
 Options:
   -r, --rvtools-files <RVTOOLS_FILES>...      RvTools File(s)
   -i, --include-powered-off                   Include Powered Off VMs
+      --retention <RETENTION>...              Retention - example 30D1W1M1Y - global
   -o, --output-file <OUTPUT_FILE>             Output File [Optional]
-  -p, --print                                 Print converted data (VSE JSON format)
+  -p, --print                                 Print converted data (VSE format)
       --print-json                            Print the VM info to JSON
   -s, --show-info                             Print DC level summary
       --dc-include <DC_INCLUDE>...            DC include list
@@ -46,11 +50,13 @@ Options:
       --cluster-exclude <CLUSTER_EXCLUDE>...  Cluster exclude list
       --vm-exclude <VM_EXCLUDE>...            VM exclude list
       --dc-site-map <DC_SITE_MAP>             Map DCs to a site - requires a JSON file
+      --dc-site-map-template                  Creates Map DC JSON template
   -d, --do-not-use-vpartition                 Don't use vPartition capacity
       --dc-print                              Print DCs
   -v, --vm-table-print                        Print VM table
       --flatten                               Flatten to single site, repo and workload
       --flatten-site                          Flatten to single cluster per-site
+      --plot                                  Plot capacity data in a bar chart
   -h, --help                                  Print help
   -V, --version                               Print version
 ```
@@ -102,6 +108,12 @@ You can modify the output file using different flags (powered off VMs are exclud
 ```
 
 In normal operation, the powered-off VMs will be excluded; using this flag will add them to the results.
+
+```
+--retention 30D1W1M1Y
+```
+
+Custom retention set for all workloads, MUST following the pattern 30D1W1M1Y, even if some of the values are 0.
 
 ```
 -p / --print
@@ -159,6 +171,14 @@ This is useful if you want to quickly aggregate all the results into a single Wo
 
 This flag will flatten the clusters into a single workload per DC (site).
 
+```
+--plot
+```
+
+This flag will plot the site-level capacity figures in a bar chart (filtering values with less than 1TB of capacity).
+
+It doesn't really help much, but it looks cool, and was fun to write!
+
 ## Includes and Excludes
 
 You can use include and exclude items from the results using several flags.
@@ -206,6 +226,12 @@ The structure of the json file is:
 ]
 ```
 
+```
+--dc-site-map-template
+```
+
+Creates a template JSON file for the DC site map. Note that this is standalone and the program will exit after creating the file.
+
 You can get the full list of the DC by using the --dc-print flag.
 
 NOTE: There aren't any checks to make sure the DC names are valid, so if you pass in a DC name that doesn't exist it will be ignored.
@@ -219,14 +245,15 @@ rvtools2vse -r rvtools.xlsx \
 --dc-exclude dc1 \
 --cluster-exclude cluster1,cluster2 \
 --vm-exclude vm1,vm2 \
---print \
+--show-info \
 --output-file vse_rvtools.json
 ```
 
 ```
 rvtools2vse -r rvtools1.xlsx,rvtools2 \
 --dc_site_map mapping.json
---print \
+--show-info \
+--plot \
 --output-file vse_rvtools.json
 ```
 
@@ -236,7 +263,7 @@ rvtools2vse -r rvtools1.xlsx,rvtools2 \
 - Each Datacenter will have a single performance tier repository
 - Each Cluster will be converted into a Workload and assigned to its respective Site (DC) and Repository
 - All workloads are assigned the same:
-  - 30-day retention period
+  - 30-day retention period (unless specified using the --retention flag)
   - 24 full/ 12 inc hour backup window
   - "Generic Optimistic" data property
 - Repositories are set to use ReFS/XFS

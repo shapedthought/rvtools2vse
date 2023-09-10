@@ -1,4 +1,5 @@
 use anyhow::Result;
+use regex::Regex;
 
 use crate::models::{
     new_model::{
@@ -10,6 +11,7 @@ use crate::models::{
 pub fn vse_construct(
     datacenter_strings: Vec<String>,
     datacenters: &Vec<Datacenter>,
+    retention: Option<String>,
 ) -> Result<NewVse> {
     let sites = datacenter_strings
         .iter()
@@ -70,14 +72,30 @@ pub fn vse_construct(
         true,
     );
 
+    let mut simple = 30;
+    let mut weekly = 0;
+    let mut monthly = 0;
+    let mut yearly = 0;
+
+    if let Some(retention) = retention {
+        let re = Regex::new(r"(\d+)D(\d+)W(\d+)M(\d+)Y").unwrap();
+
+        let caps = re.captures(&retention).unwrap();
+
+        simple = caps[1].parse::<i64>().unwrap();
+        weekly = caps[2].parse::<i64>().unwrap();
+        monthly = caps[3].parse::<i64>().unwrap();
+        yearly = caps[4].parse::<i64>().unwrap();
+    }
+
     let retention = Retentions::new(
         "rt1".to_string(),
         "30D".to_string(),
         "Instance".to_string(),
-        30,
-        0,
-        0,
-        0,
+        simple,
+        weekly,
+        monthly,
+        yearly,
         true,
     );
 

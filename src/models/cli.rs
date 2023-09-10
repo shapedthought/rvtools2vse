@@ -13,6 +13,10 @@ pub struct Cli {
     #[clap(short, long, action, default_value_t = false)]
     pub include_powered_off: bool,
 
+    /// Retention - example 30D1W1M1Y - global
+    #[clap(long, value_delimiter = ',', num_args = 1..)]
+    pub retention: Option<String>,
+
     /// Output File [Optional]
     #[clap(short, long, value_parser)]
     pub output_file: Option<String>,
@@ -49,12 +53,13 @@ pub struct Cli {
     #[clap(long, value_delimiter = ',', num_args = 1..)]
     pub vm_exclude: Option<Vec<String>>,
 
-    // /// Map DCs to a site
-    // #[clap(long, value_delimiter = ',', num_args = 1..)]
-    // pub dc_site_map: Option<Vec<String>>,
     /// Map DCs to a site - requires a JSON file
     #[clap(long, value_parser)]
     pub dc_site_map: Option<PathBuf>,
+
+    /// Creates Map DC JSON template
+    #[clap(long, action, default_value_t = false)]
+    pub dc_site_map_template: bool,
 
     /// Don't use vPartition capacity
     #[clap(short, long, action, default_value_t = false)]
@@ -75,4 +80,8 @@ pub struct Cli {
     /// Flatten to single cluster per-site
     #[clap(long, action, default_value_t = false)]
     pub flatten_site: bool,
+
+    /// Plot capacity data in a bar chart
+    #[clap(long, action, default_value_t = false)]
+    pub plot: bool,
 }

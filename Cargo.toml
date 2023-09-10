@@ -16,6 +16,8 @@ serde_json = "1.0.93"
 comfy-table = "6.1.4"
 thiserror = "1.0.38"
 derive-new = "0.5.9"
+termplot = "0.1.1"
+regex = "1.9.5"
 
 [profile.release]
 strip = true

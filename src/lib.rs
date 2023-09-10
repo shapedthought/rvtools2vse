@@ -1,6 +1,7 @@
 mod excel;
 mod helpers;
 mod models;
+mod plot;
 mod vse;
 use std::{fs, io::Write, println};
 
@@ -26,6 +27,21 @@ use std::collections::HashMap;
 
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
+
+    if cli.dc_site_map_template {
+        let mapper = vec![Mapper {
+            group_name: "Group1".to_string(),
+            dc_names: vec!["DC1".to_string(), "DC2".to_string()],
+        }];
+
+        let mapper_json = serde_json::to_string_pretty(&mapper)?;
+
+        let mut json_file = fs::File::create("dc_mapper.json")?;
+        json_file.write_all(mapper_json.as_bytes())?;
+
+        println!("dc_mapper.json created");
+        return Ok(());
+    }
 
     let (info_vec, part_vec) = get_excel(&cli)?;
 
@@ -240,7 +256,7 @@ pub fn run() -> Result<()> {
         datacenter_strings.iter().for_each(|x| println!("{:?},", x))
     }
 
-    let vse = vse_construct(datacenter_strings, &datacenters)?;
+    let vse = vse_construct(datacenter_strings, &datacenters, cli.retention)?;
 
     if cli.print {
         println!("{:#?}", vse);
@@ -249,6 +265,20 @@ pub fn run() -> Result<()> {
     if cli.print_json {
         let combined_json = serde_json::to_string_pretty(&combined)?;
         println!("{}", combined_json);
+    }
+
+    if cli.plot {
+        let data = datacenters
+            .iter()
+            .filter(|x| x.capacity > 1.00)
+            .map(|x| x.capacity)
+            .collect::<Vec<_>>();
+        let site_names = datacenters
+            .iter()
+            .filter(|x| x.capacity > 1.00)
+            .map(|x| x.name.clone())
+            .collect::<Vec<_>>();
+        plot::plot_data(data, site_names);
     }
 
     if !cli.print_json {
