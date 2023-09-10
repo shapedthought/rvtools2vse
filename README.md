@@ -73,7 +73,7 @@ The RvTools columns used are:
 | vPartition | powerState   |
 | vPartition | Consumed MiB |
 
-If any of these columns are missing, the tool will not work. The exception to this is if you use the -d flag, which will ignore the vPartition tab.
+If any of the vInfo columns are missing or have a different name, the tool will not work. If the vPartition tab is missing or has a different name, the tool will continue to use the vInfo capacity figures only. I will show a warning for the file that is missing that tab at the top of the output.
 
 If any of the Clusters cells are empty they will be shown under an "None" cluster in the results.
 
