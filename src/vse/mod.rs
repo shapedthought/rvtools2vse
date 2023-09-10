@@ -70,7 +70,16 @@ pub fn vse_construct(
         true,
     );
 
-    let retention = Retentions::new("rt1".to_string(), "30D".to_string(), 30, 0, 0, 0, true);
+    let retention = Retentions::new(
+        "rt1".to_string(),
+        "30D".to_string(),
+        "Instance".to_string(),
+        30,
+        0,
+        0,
+        0,
+        true,
+    );
 
     let workloads = datacenters
         .iter()
@@ -81,11 +90,7 @@ pub fn vse_construct(
                 "bw12".to_string(),
             );
 
-            let copies = Backup::new(
-                "".to_string(),
-                "".to_string(),
-                "".to_string(),
-            );
+            let copies = Backup::new("".to_string(), "".to_string(), "".to_string());
 
             Workload::new(
                 format!("{}_workload", x.cluster),

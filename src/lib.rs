@@ -17,7 +17,8 @@ use crate::{
     excel::get_excel,
     models::{
         cli::Cli,
-        rvtools::{Datacenter, Vinfo, Vpartition}, new_model::Mapper,
+        new_model::Mapper,
+        rvtools::{Datacenter, Vinfo, Vpartition},
     },
     vse::vse_construct,
 };
@@ -76,7 +77,7 @@ pub fn run() -> Result<()> {
     let mut datacenters: Vec<Datacenter> = Vec::new();
 
     // Flattens the DC results into single clusters
-    if cli.flatten_site && !cli.flatten  && cli.dc_site_map.is_none() {
+    if cli.flatten_site && !cli.flatten && cli.dc_site_map.is_none() {
         combined
             .iter()
             .sorted_by_key(|s| &s.datacenter)
@@ -135,7 +136,6 @@ pub fn run() -> Result<()> {
     }
 
     if let Some(dc_map) = cli.dc_site_map {
-
         let mapper_file = fs::read_to_string(dc_map)?;
         let dc_map: Vec<Mapper> = serde_json::from_str(&mapper_file)?;
 
@@ -143,7 +143,7 @@ pub fn run() -> Result<()> {
         dc_map.iter().for_each(|map_item| {
             let mut cap = 0.0;
             let mut vm_count = 0;
-            
+
             map_item.dc_names.iter().for_each(|site| {
                 let dc_cap: f64 = datacenters
                     .iter()

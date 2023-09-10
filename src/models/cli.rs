@@ -49,10 +49,9 @@ pub struct Cli {
     #[clap(long, value_delimiter = ',', num_args = 1..)]
     pub vm_exclude: Option<Vec<String>>,
 
-    // /// Map DCs to a site 
+    // /// Map DCs to a site
     // #[clap(long, value_delimiter = ',', num_args = 1..)]
     // pub dc_site_map: Option<Vec<String>>,
-
     /// Map DCs to a site - requires a JSON file
     #[clap(long, value_parser)]
     pub dc_site_map: Option<PathBuf>,

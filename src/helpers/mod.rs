@@ -17,11 +17,7 @@ impl ColPosition for Range<DataType> {
         if let Some(p) = pos {
             Ok(p)
         } else {
-            Err(MyError::ColumnPosition(format!(
-                "{} - {:?}",
-                col_name.to_string(),
-                data_type
-            )))
+            Err(MyError::ColumnPosition(format!("{}", col_name.to_string())))
         }
     }
 }

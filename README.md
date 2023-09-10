@@ -6,7 +6,7 @@ Recent updates:
 
 - Updated to work with the VSE v0.11.0 format
 - Multiple RVTools files can be passed in
-- vPartition tab is ignored if the -d flag is passed, allows for the tab to be missing
+- If vPartition tab is missing it will it will continue to use the vInfo capacity figures only
 
 ## Installation
 

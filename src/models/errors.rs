@@ -11,10 +11,10 @@ pub enum MyError {
     ColumnPosition(String),
     #[error("Error with excel file")]
     ExcelError(#[from] calamine::XlsxError),
-    #[error("Error with vInfo sheet")]
+    #[error("Error with vInfo sheet: {0}")]
     VinfoError(String),
-    #[error("Error with vPartition sheet")]
+    #[error("Error with vPartition sheet: {0}")]
     VpartitionError(String),
-    #[error("RvTools selection error")]
+    #[error("RvTools selection error: {0}")]
     RvtoolsError(String),
 }

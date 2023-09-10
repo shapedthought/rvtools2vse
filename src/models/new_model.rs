@@ -78,6 +78,7 @@ pub struct Window {
 pub struct Retentions {
     pub retention_id: String,
     pub retention_name: String,
+    pub retention_type: String,
     pub simple: i64,
     pub weekly: i64,
     pub monthly: i64,
@@ -100,7 +101,7 @@ pub struct Workload {
     pub data_property_id: String,
     pub backup: Backup,
     pub copies_enabled: bool,
-    pub copies: Backup
+    pub copies: Backup,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, new)]
