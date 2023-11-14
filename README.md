@@ -10,6 +10,7 @@ Recent updates:
 - Added --dc-site-map-template flag to create a template JSON file for the DC site map
 - Added --plot flag to plot the site-level capacity figures in a bar chart
 - Added --retention flag to set a custom retention for all workloads
+- Added --legacy flag to use the older capacity figures (pre v4.1.2)
 
 ## Installation
 
@@ -34,7 +35,7 @@ cargo uninstall rvtools2vse
 ## Usage
 
 ```
-Usage: rvtools2vse.exe [OPTIONS] --rvtools-file <RVTOOLS_FILE>
+Usage: rvtools2vse.exe [OPTIONS]
 
 Options:
   -r, --rvtools-files <RVTOOLS_FILES>...      RvTools File(s)
@@ -49,6 +50,7 @@ Options:
       --dc-exclude <DC_EXCLUDE>...            DC exclude list
       --cluster-exclude <CLUSTER_EXCLUDE>...  Cluster exclude list
       --vm-exclude <VM_EXCLUDE>...            VM exclude list
+      --legacy                                Legacy mode - pre v4.1.2
       --dc-site-map <DC_SITE_MAP>             Map DCs to a site - requires a JSON file
       --dc-site-map-template                  Creates Map DC JSON template
   -d, --do-not-use-vpartition                 Don't use vPartition capacity
@@ -61,8 +63,7 @@ Options:
   -V, --version                               Print version
 ```
 
-Note that the vInfo "In Use MiB" must have that string and not "In Use MB", which was used in older RvTools versions.
-This also applies to the vPartition "Capacity MiB" ("Capacity MB" in older versions).
+If you are using an older RvTools version (pre v4.1.2) you will need to use the --legacy flag. This will used the older "In Use MB"/ "Consumed MB" columns instead of the "In Use MiB"/ "Consumed MiB" columns.
 
 ## RvTools columns
 

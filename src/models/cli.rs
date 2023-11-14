@@ -53,6 +53,10 @@ pub struct Cli {
     #[clap(long, value_delimiter = ',', num_args = 1..)]
     pub vm_exclude: Option<Vec<String>>,
 
+    /// Legacy mode - pre v4.1.2
+    #[clap(long, action, default_value_t = false)]
+    pub legacy: bool,
+
     /// Map DCs to a site - requires a JSON file
     #[clap(long, value_parser)]
     pub dc_site_map: Option<PathBuf>,

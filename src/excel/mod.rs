@@ -37,7 +37,13 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
 
         let power_column = workbook.get_col_pos(&"Powerstate".to_string())?;
 
-        let cap_column = workbook.get_col_pos(&"In Use MiB".to_string())?;
+        let cap_string = if cli.legacy {
+            "In Use MB"
+        } else {
+            "In Use MiB"
+        };
+
+        let cap_column = workbook.get_col_pos(&cap_string.to_string())?;
 
         let dc_column = workbook.get_col_pos(&"Datacenter".to_string())?;
 
@@ -54,8 +60,14 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
             let vm_name =
                 &row.1[vm_column].get_string_value("vInfo - column 'VM'".to_string(), row.0 + 1)?;
 
+            let cap_error_string = if cli.legacy {
+                "vInfo - column 'Capacity MB'"
+            } else {
+                "vInfo - column 'Capacity MiB'"
+            };
+
             let cap = &row.1[cap_column]
-                .get_float_value("vInfo - column 'Capacity MiB'".to_string(), row.0 + 1)?;
+                .get_float_value(cap_error_string.to_string(), row.0 + 1)?;
 
             let dc = &row.1[dc_column]
                 .get_string_value("vInfo - column 'Datacenter'".to_string(), row.0 + 1)?;
@@ -118,7 +130,13 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
 
                 let part_power_column = partition.get_col_pos(&"Powerstate".to_string())?;
 
-                let part_cap_column = partition.get_col_pos(&"Consumed MiB".to_string())?;
+                let consumed_string = if cli.legacy {
+                    "Consumed MB"
+                } else {
+                    "Consumed MiB"
+                };
+
+                let part_cap_column = partition.get_col_pos(&consumed_string.to_string())?;
                 for row in partition.rows().enumerate().skip(1) {
                     let power_state = &row.1[part_power_column].get_string_value(
                         "vParition - column 'Powerstate'".to_string(),
@@ -132,8 +150,14 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
                     let vm_name = &row.1[part_vm_column]
                         .get_string_value("vParition - column 'VM'".to_string(), row.0 + 1)?;
 
+                    let cap_error_string = if cli.legacy {
+                        "vParition - column 'Capacity MB'"
+                    } else {
+                        "vParition - column 'Capacity MiB'"
+                    };
+
                     let cap = &row.1[part_cap_column].get_float_value(
-                        "vParition - column 'Capacity MiB'".to_string(),
+                        cap_error_string.to_string(),
                         row.0 + 1,
                     )?;
 
