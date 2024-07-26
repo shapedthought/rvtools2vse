@@ -1,6 +1,7 @@
 use crate::{helpers, models::errors::MyError};
 use calamine::{open_workbook, Reader, Xlsx};
 use helpers::{ColPosition, GetFloat, GetString};
+use fastmurmur3;
 
 use crate::models::{
     cli::Cli,
@@ -57,8 +58,11 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
                 continue;
             }
 
-            let vm_name =
+            let mut vm_name =
                 &row.1[vm_column].get_string_value("vInfo - column 'VM'".to_string(), row.0 + 1)?;
+
+            let anonymized_vm_name = anon_data(&vm_name, &cli);
+            vm_name = &anonymized_vm_name;
 
             let cap_error_string = if cli.legacy {
                 "vInfo - column 'Capacity MB'"
@@ -69,11 +73,25 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
             let cap = &row.1[cap_column]
                 .get_float_value(cap_error_string.to_string(), row.0 + 1)?;
 
-            let dc = &row.1[dc_column]
+            let mut dc = &row.1[dc_column]
                 .get_string_value("vInfo - column 'Datacenter'".to_string(), row.0 + 1)?;
 
-            let cluster = &row.1[cluster_column]
+            let mut anan_dc = dc.clone();
+            if cli.anonymize {
+                let hash = fastmurmur3::hash(dc.as_bytes());
+                anan_dc = hash.to_string();
+            };
+            dc = &anan_dc;
+
+            let mut cluster = &row.1[cluster_column]
                 .get_string_value("vInfo - column 'Cluster'".to_string(), row.0 + 1)?;
+
+            let mut anon_cluster = cluster.clone();
+            if cli.anonymize { 
+                let hash = fastmurmur3::hash(cluster.as_bytes());
+                anon_cluster = hash.to_string();
+            }
+            cluster = &anon_cluster;
 
             info_vec.push(Vinfo {
                 vm_name: vm_name.to_string(),
@@ -178,4 +196,13 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
     }
 
     Ok((info_vec, part_vec))
+}
+
+fn anon_data(item: &String, cli: &Cli) -> String {
+    let mut anon_item = item.clone();
+    if cli.anonymize {
+        let hash = fastmurmur3::hash(anon_item.as_bytes());
+        anon_item = hash.to_string();
+    }
+    anon_item
 }

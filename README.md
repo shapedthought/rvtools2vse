@@ -35,7 +35,7 @@ cargo uninstall rvtools2vse
 ## Usage
 
 ```
-Usage: rvtools2vse.exe [OPTIONS]
+Usage: rvtools2vse [OPTIONS]
 
 Options:
   -r, --rvtools-files <RVTOOLS_FILES>...      RvTools File(s)
@@ -59,6 +59,7 @@ Options:
       --flatten                               Flatten to single site, repo and workload
       --flatten-site                          Flatten to single cluster per-site
       --plot                                  Plot capacity data in a bar chart
+      --anonymize                             Anonymize the data
   -h, --help                                  Print help
   -V, --version                               Print version
 ```
@@ -179,6 +180,12 @@ This flag will flatten the clusters into a single workload per DC (site).
 This flag will plot the site-level capacity figures in a bar chart (filtering values with less than 1TB of capacity).
 
 It doesn't really help much, but it looks cool, and was fun to write!
+
+```
+--anonymize
+```
+
+This flag hashes the DC and Cluster information.
 
 ```
 -o / --output-file vse_rvtools

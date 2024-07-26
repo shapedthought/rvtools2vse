@@ -88,4 +88,8 @@ pub struct Cli {
     /// Plot capacity data in a bar chart
     #[clap(long, action, default_value_t = false)]
     pub plot: bool,
+
+    /// Anonymize the data
+    #[clap(long, action, default_value_t = false)]
+    pub anonymize: bool,
 }
