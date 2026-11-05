@@ -99,6 +99,7 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
                 cluster: cluster.to_string(),
                 capacity: *cap,
                 powerstate: power_state.to_string(),
+                vpartition_capacity: None,
             })
         }
         if let Some(dc_include) = &cli.dc_include {
@@ -151,7 +152,16 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
 
                 let part_vm_column = partition.get_col_pos(&"VM".to_string())?;
 
-                let part_power_column = partition.get_col_pos(&"Powerstate".to_string())?;
+                // Powerstate is optional on vPartition: power state is already
+                // filtered on vInfo, and partitions only count when they join to
+                // a vInfo VM, so a missing column just skips the extra filter.
+                let part_power_column = partition.get_col_pos(&"Powerstate".to_string()).ok();
+                if part_power_column.is_none() {
+                    eprintln!(
+                        "vPartition in {:?} has no Powerstate column; using vInfo power state via the VM join.",
+                        cli.rvtools_files[i]
+                    );
+                }
 
                 let consumed_string = if cli.legacy {
                     "Consumed MB"
@@ -161,13 +171,15 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
 
                 let part_cap_column = partition.get_col_pos(&consumed_string.to_string())?;
                 for row in partition.rows().enumerate().skip(1) {
-                    let power_state = &row.1[part_power_column].get_string_value(
-                        "vParition - column 'Powerstate'".to_string(),
-                        row.0 + 1,
-                    )?;
+                    if let Some(col) = part_power_column {
+                        let power_state = &row.1[col].get_string_value(
+                            "vParition - column 'Powerstate'".to_string(),
+                            row.0 + 1,
+                        )?;
 
-                    if power_state.contains("poweredOff") && !cli.include_powered_off {
-                        continue;
+                        if power_state.contains("poweredOff") && !cli.include_powered_off {
+                            continue;
+                        }
                     }
 
                     let vm_name = &row.1[part_vm_column]
@@ -184,8 +196,9 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
                         row.0 + 1,
                     )?;
 
+                    // Hash with the same mapping as vInfo so the join still matches
                     part_vec.push(Vpartition {
-                        vm_name: vm_name.to_string(),
+                        vm_name: anon_data(vm_name, cli),
                         capacity: *cap,
                     })
                 }

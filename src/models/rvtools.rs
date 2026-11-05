@@ -7,6 +7,10 @@ pub struct Vinfo {
     pub cluster: String,
     pub capacity: f64,
     pub powerstate: String,
+    /// Summed vPartition consumed capacity (MiB) when the VM joined to vPartition.
+    /// Not serialized so `--print-json` output is unchanged.
+    #[serde(skip)]
+    pub vpartition_capacity: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
