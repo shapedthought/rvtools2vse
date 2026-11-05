@@ -120,9 +120,9 @@ Columns read (names must match exactly):
 | Sheet      | Columns |
 | ---------- | ------- |
 | vInfo      | `VM`, `Powerstate`, `Datacenter`, `Cluster`, `In Use MiB` |
-| vPartition | `VM`, `Powerstate`, `Consumed MiB` |
+| vPartition | `VM`, `Consumed MiB`, `Powerstate` (optional) |
 
-If a workbook has no `vPartition` tab, a warning is printed and vInfo capacity is used for that file. VMs with an empty cluster are grouped under `None`.
+If `vPartition` has no `Powerstate` column, a note is printed to stderr and power state comes from the matching vInfo row (partitions only count when they join to an included vInfo VM). If a workbook has no `vPartition` tab, a warning is printed and vInfo capacity is used for that file. VMs with an empty cluster are grouped under `None`.
 
 ### Capacity
 
@@ -169,9 +169,9 @@ When `--dc-site-map` is given, `--flatten` and `--flatten-site` are ignored. If 
 ### Other options
 
 - `--print-json` prints the filtered per-VM data as JSON.
-- `-v/--vm-table-print` prints a per-VM table.
+- `-v/--vm-table-print` prints a per-VM table. `Capacity (GiB)` is the capacity used in the totals, and `vPartition (GiB)` is the summed vPartition value for that VM (`-` if it has no vPartition rows).
 - `--plot` draws a terminal bar chart of per-site capacity (sites over 1 TB).
-- `--anonymize` hashes DC, cluster and VM names.
+- `--anonymize` hashes DC, cluster and VM names. VM names are hashed the same way in vInfo and vPartition, so totals match a non-anonymized run.
 - `-o/--output-file`, `-p/--print` and `--retention` are for the legacy VSE output. `-o` appends `.json` if it is missing. Each datacenter becomes a site with one repository, and each cluster becomes a workload. Workloads get 30-day retention (or the `--retention 30D1W1M1Y` pattern you give), a 24h full / 12h incremental window and the "Generic Optimistic" data property.
 
 ## Examples
@@ -194,9 +194,11 @@ rvtools2vse --dc-site-map-template          # edit dc_mapper.json
 rvtools2vse -D ./exports --dc-site-map dc_mapper.json -s --format md
 ```
 
+## Testing
+
+`cargo test` runs the unit tests and the regression tests in `tests/regression.rs`. Those tests use the synthetic workbooks in `testdata/`; regenerate them with `python3 testdata/generate_testdata.py` (needs `openpyxl`).
+
 ## Known issues
 
-- A `vPartition` tab without a `Powerstate` column causes a hard failure. Pass `-d` (vPartition is then not read) or add the column.
-- `--anonymize` hashes VM names before the vInfo/vPartition join, so the join silently fails and vInfo capacity is used (totals come out higher than without `--anonymize`).
-- In the `-v` VM table, the `vPartition (GiB)` column shows the vInfo capacity, so it always matches the Capacity column.
 - If the tool can't find the `vInfo` or `vPartition` tab even though it exists, open the file in Excel, rename the tab, and save it again.
+- With `--anonymize`, the include/exclude filters are compared against the hashed names, so filtering by real DC, cluster or VM names has no effect.

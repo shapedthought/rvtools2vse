@@ -92,6 +92,7 @@ pub fn run() -> Result<()> {
                     cluster: i.cluster.clone(),
                     capacity: low_cap,
                     powerstate: i.powerstate.clone(),
+                    vpartition_capacity: Some(j.capacity),
                 };
                 combined.push(new_st);
             } else {
@@ -243,7 +244,9 @@ pub fn run() -> Result<()> {
                     x.cluster.to_string(),
                     x.vm_name.to_string(),
                     format!("{:.2}", x.capacity / gb_devisor),
-                    format!("{:.2}", x.capacity / gb_devisor),
+                    x.vpartition_capacity
+                        .map(|v| format!("{:.2}", v / gb_devisor))
+                        .unwrap_or_else(|| "-".to_string()),
                     x.powerstate.to_string(),
                 ]);
             });
