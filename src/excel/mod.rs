@@ -192,7 +192,7 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
             }
         } else {
             if !cli.do_not_use_vpartition {
-                println!(
+                eprintln!(
                     "vPartition sheet not found in {:?}, continuing without it.",
                     cli.rvtools_files[i]
                 );

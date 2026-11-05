@@ -39,6 +39,8 @@ Usage: rvtools2vse [OPTIONS]
 
 Options:
   -r, --rvtools-files <RVTOOLS_FILES>...      RvTools File(s)
+  -D, --rvtools-dir <RVTOOLS_DIR>...          Folder(s) of RvTools files - every .xlsx inside is used
+      --recursive                             Descend into subfolders of --rvtools-dir
   -i, --include-powered-off                   Include Powered Off VMs
       --retention <RETENTION>...              Retention - example 30D1W1M1Y - global
   -o, --output-file <OUTPUT_FILE>             Output File [Optional]
@@ -104,6 +106,16 @@ Also, if there are spaces in the file names, you will need to enclose them in qu
 ```
 -r "rvtools 1.xlsx",rvtools2.xlsx
 ```
+
+Alternatively point the tool at one or more folders:
+
+```
+-D ./rvtools_exports
+-D ./site_a,./site_b
+-D ./rvtools_exports --recursive
+```
+
+Every `.xlsx` file in the folder is used (the extension match ignores case). Hidden files, Excel lock files (`~$...`) and other file types are skipped, and files are processed in sorted order. `--recursive` also searches subfolders, skipping hidden ones. `-D` can be combined with `-r`, and any file picked up twice is only read once. The list of files used is printed to stderr, so `--format json/csv` output on stdout stays clean. If a folder contains no `.xlsx` files, the tool stops with an error.
 
 You can modify the output file using different flags (powered off VMs are excluded by default).
 

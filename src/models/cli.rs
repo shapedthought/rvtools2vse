@@ -11,6 +11,14 @@ pub struct Cli {
     #[clap(short, long, value_delimiter = ',', num_args = 1..)]
     pub rvtools_files: Vec<PathBuf>,
 
+    /// Folder(s) of RvTools files - every .xlsx inside is used
+    #[clap(short = 'D', long, value_delimiter = ',', num_args = 1..)]
+    pub rvtools_dir: Vec<PathBuf>,
+
+    /// Descend into subfolders of --rvtools-dir
+    #[clap(long, action, default_value_t = false)]
+    pub recursive: bool,
+
     /// Include Powered Off VMs
     #[clap(short, long, action, default_value_t = false)]
     pub include_powered_off: bool,
