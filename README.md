@@ -14,6 +14,8 @@ Recent updates:
 
 ## Installation
 
+Building from source needs Rust 1.88 or newer (set as `rust-version` in `Cargo.toml`). For Docker builds use `rust:1.88` or later as the base image.
+
 Requires Rust to be installed
 
 1. clone repo
