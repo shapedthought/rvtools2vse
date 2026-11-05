@@ -2,6 +2,7 @@ mod excel;
 mod helpers;
 mod models;
 mod plot;
+mod summary;
 mod vse;
 use std::{fs, io::Write, println};
 
@@ -24,6 +25,7 @@ use crate::{
     vse::vse_construct,
 };
 use std::collections::HashMap;
+use summary::SummaryFormat;
 
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
@@ -186,28 +188,21 @@ pub fn run() -> Result<()> {
         datacenters = temp_dc;
     }
 
-    if cli.show_info {
-        let mut table = Table::new();
+    let show_info = cli.show_info || cli.summary_file.is_some();
+    // json/csv to stdout must stay pipeable: suppress the trailing totals lines
+    let machine_stdout = cli.show_info
+        && cli.summary_file.is_none()
+        && matches!(cli.format, SummaryFormat::Json | SummaryFormat::Csv);
 
-        table
-            .load_preset(UTF8_FULL)
-            .apply_modifier(UTF8_ROUND_CORNERS)
-            .apply_modifier(UTF8_SOLID_INNER_BORDERS)
-            .set_header(vec!["Datacenter", "Cluster", "Capacity (TB)", "VM Count"]);
-
-        datacenters
-            .iter()
-            .sorted_by(|a, b| a.capacity.partial_cmp(&b.capacity).unwrap())
-            .rev()
-            .for_each(|x| {
-                table.add_row(vec![
-                    x.name.to_string(),
-                    x.cluster.to_string(),
-                    format!("{:.2}", x.capacity),
-                    x.vm_count.to_string(),
-                ]);
-            });
-        println!("{table}");
+    if show_info {
+        let rendered = summary::render(&datacenters, cli.format)?;
+        match &cli.summary_file {
+            Some(path) => {
+                fs::write(path, rendered)?;
+                eprintln!("Summary written to: {}", path.display());
+            }
+            None => print!("{rendered}"),
+        }
     }
 
     if cli.vm_table_print {
@@ -281,7 +276,7 @@ pub fn run() -> Result<()> {
         plot::plot_data(data, site_names);
     }
 
-    if !cli.print_json {
+    if !cli.print_json && !machine_stdout {
         let total_vms = combined.len();
         println!("Total VMs: {}", total_vms);
 

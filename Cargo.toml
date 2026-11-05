@@ -19,6 +19,7 @@ derive-new = "0.5.9"
 termplot = "0.1.1"
 regex = "1.9.5"
 fastmurmur3 = "0.2.0"
+csv = "1"
 
 [profile.release]
 strip = true
