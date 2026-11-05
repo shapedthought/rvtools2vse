@@ -1,5 +1,5 @@
 use crate::{helpers, models::errors::MyError};
-use calamine::{open_workbook, Reader, Xlsx};
+use calamine::{open_workbook, Reader, Xlsx, XlsxError};
 use helpers::{ColPosition, GetFloat, GetString};
 use fastmurmur3;
 
@@ -26,13 +26,13 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
     let mut part_vec: Vec<Vpartition> = Vec::new();
 
     for (i, mut excel) in excel_vec.into_iter().enumerate() {
-        let workbook = excel.worksheet_range("vInfo");
-
-        if workbook.is_none() {
-            return Err(MyError::VinfoError("vInfo sheet not found".to_string()));
-        }
-
-        let workbook = workbook.unwrap().unwrap();
+        let workbook = match excel.worksheet_range("vInfo") {
+            Ok(range) => range,
+            Err(XlsxError::WorksheetNotFound(_)) => {
+                return Err(MyError::VinfoError("vInfo sheet not found".to_string()));
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         let vm_column = workbook.get_col_pos(&"VM".to_string())?;
 
@@ -132,7 +132,12 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
                 .collect::<Vec<Vinfo>>();
         }
 
-        let partition = excel.worksheet_range("vPartition");
+        // calamine >= 0.20 returns Err(WorksheetNotFound) instead of None for a
+        // missing sheet; map it back to Option<Result<_>> to keep behaviour.
+        let partition = match excel.worksheet_range("vPartition") {
+            Err(XlsxError::WorksheetNotFound(_)) => None,
+            other => Some(other),
+        };
 
         if let Some(partition) = partition {
             if partition.is_err() || cli.do_not_use_vpartition {
