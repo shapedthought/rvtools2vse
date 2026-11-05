@@ -1,5 +1,6 @@
 mod excel;
 mod helpers;
+mod inputs;
 mod models;
 mod plot;
 mod summary;
@@ -28,7 +29,7 @@ use std::collections::HashMap;
 use summary::SummaryFormat;
 
 pub fn run() -> Result<()> {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
 
     if cli.dc_site_map_template {
         let mapper = vec![Mapper {
@@ -43,6 +44,15 @@ pub fn run() -> Result<()> {
 
         println!("dc_mapper.json created");
         return Ok(());
+    }
+
+    cli.rvtools_files =
+        inputs::resolve_inputs(&cli.rvtools_files, &cli.rvtools_dir, cli.recursive)?;
+    if !cli.rvtools_dir.is_empty() {
+        eprintln!("Using {} RVTools file(s):", cli.rvtools_files.len());
+        cli.rvtools_files
+            .iter()
+            .for_each(|f| eprintln!("  {}", f.display()));
     }
 
     let (info_vec, part_vec) = get_excel(&cli)?;
