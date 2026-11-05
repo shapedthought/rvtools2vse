@@ -1,0 +1,15 @@
+target/
+.git/
+.github/
+testdata/
+*.xlsx
+*.json
+*.md
+!README.md
+.DS_Store
+*.exe
+.idea/
+.vscode/
+Containerfile
+Dockerfile
+.dockerignore

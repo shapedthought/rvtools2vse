@@ -1,355 +1,202 @@
 # rvtools2vse
 
-Tool to convert RVTools output to VSE format.
+A fast, offline command-line summariser for [RVTools](https://www.robware.net/) `.xlsx` exports.
 
-Recent updates:
+It reads the `vInfo` (and, if present, `vPartition`) tabs from one or more RVTools files, filters VMs, and rolls up VM count and capacity per datacenter and cluster. You can print the summary as a terminal table, JSON, CSV or Markdown, or write it to a file.
 
-- Updated to work with the VSE v0.11.0 format
-- Multiple RVTools files can be passed in
-- If vPartition tab is missing it will it will continue to use the vInfo capacity figures only
-- Added --dc-site-map-template flag to create a template JSON file for the DC site map
-- Added --plot flag to plot the site-level capacity figures in a bar chart
-- Added --retention flag to set a custom retention for all workloads
-- Added --legacy flag to use the older capacity figures (pre v4.1.2)
+> **Legacy VSE output.** The tool was originally written to convert RVTools data into the Veeam Size Estimator (VSE) format. VSE is now defunct. The VSE JSON output is still available via `-o/--output-file` and `-p/--print` but is no longer the main purpose of the tool.
 
-## Installation
+## Building from source
 
-Building from source needs Rust 1.88 or newer (set as `rust-version` in `Cargo.toml`). For Docker builds use `rust:1.88` or later as the base image.
-
-Requires Rust to be installed
-
-1. clone repo
-2. cd into repo
-3. run:
+Requires Rust **1.88 or newer** (`rust-version` in `Cargo.toml`).
 
 ```
-cargo install --path .
+git clone https://github.com/shapedthought/rvtools2vse.git
+cd rvtools2vse
+cargo install --path .     # installs rvtools2vse on your PATH
+# or: cargo build --release  -> target/release/rvtools2vse
 ```
 
-This will make the tool available system wide.
+Uninstall with `cargo uninstall rvtools2vse`.
 
-## Uninstall
+## Container
+
+A multi-stage `Containerfile` is included (`rust:1-bookworm` builder, `debian:bookworm-slim` runtime). Build it from the repo root with podman or docker:
 
 ```
-cargo uninstall rvtools2vse
+podman build -t rvtools2vse:latest -f Containerfile .
+# or: docker build -t rvtools2vse:latest -f Containerfile .
 ```
+
+Mount the folder that holds your RVTools files at `/data` (the container's working directory):
+
+```
+podman run --rm -v "$PWD":/data rvtools2vse:latest -D /data -s --format md
+podman run --rm -v "$PWD":/data rvtools2vse:latest -r /data/rvtools.xlsx -s --format csv > summary.csv
+```
+
+The container runs as **uid 1000** (`appuser`). Reading files only needs read access. Writing files (`--summary-file`, `-o`, `--dc-site-map-template`) needs a mount that uid 1000 can write to. On SELinux hosts, add `:Z` to the volume (`-v "$PWD":/data:Z`). With rootless podman, `--userns=keep-id` maps uid 1000 to your own user.
 
 ## Usage
+
+Output of `rvtools2vse -h` (use `--help` for the long form):
 
 ```
 Usage: rvtools2vse [OPTIONS]
 
 Options:
-  -r, --rvtools-files <RVTOOLS_FILES>...      RvTools File(s)
-  -D, --rvtools-dir <RVTOOLS_DIR>...          Folder(s) of RvTools files - every .xlsx inside is used
-      --recursive                             Descend into subfolders of --rvtools-dir
-  -i, --include-powered-off                   Include Powered Off VMs
-      --retention <RETENTION>...              Retention - example 30D1W1M1Y - global
-  -o, --output-file <OUTPUT_FILE>             Output File [Optional]
-  -p, --print                                 Print converted data (VSE format)
-      --print-json                            Print the VM info to JSON
-  -s, --show-info                             Print DC level summary
-      --format <FORMAT>                       Output format for the --show-info summary [default: table] [possible values: table, json, csv, md]
-      --summary-file <SUMMARY_FILE>           Write the --show-info summary to a file instead of stdout (implies --show-info)
-      --dc-include <DC_INCLUDE>...            DC include list
-      --cluster-include <CLUSTER_INCLUDE>...  Cluster include list
-      --dc-exclude <DC_EXCLUDE>...            DC exclude list
-      --cluster-exclude <CLUSTER_EXCLUDE>...  Cluster exclude list
-      --vm-exclude <VM_EXCLUDE>...            VM exclude list
-      --legacy                                Legacy mode - pre v4.1.2
-      --dc-site-map <DC_SITE_MAP>             Map DCs to a site - requires a JSON file
-      --dc-site-map-template                  Creates Map DC JSON template
-  -d, --do-not-use-vpartition                 Don't use vPartition capacity
-      --dc-print                              Print DCs
-  -v, --vm-table-print                        Print VM table
-      --flatten                               Flatten to single site, repo and workload
-      --flatten-site                          Flatten to single cluster per-site
-      --plot                                  Plot capacity data in a bar chart
-      --anonymize                             Anonymize the data
-  -h, --help                                  Print help
-  -V, --version                               Print version
+  -r, --rvtools-files <RVTOOLS_FILES>...
+          RvTools File(s)
+  -D, --rvtools-dir <RVTOOLS_DIR>...
+          Folder(s) of RvTools files - every .xlsx inside is used
+      --recursive
+          Descend into subfolders of --rvtools-dir
+  -i, --include-powered-off
+          Include Powered Off VMs
+      --retention <RETENTION>...
+          Retention - example 30D1W1M1Y - global
+  -o, --output-file <OUTPUT_FILE>
+          Output File [Optional]
+  -p, --print
+          Print converted data (VSE format)
+      --print-json
+          Print the VM info to JSON
+  -s, --show-info
+          Print DC level summary
+      --format <FORMAT>
+          Output format for the --show-info summary [default: table] [possible values: table, json, csv, md]
+      --summary-file <SUMMARY_FILE>
+          Write the --show-info summary to a file instead of stdout (implies --show-info)
+      --dc-include <DC_INCLUDE>...
+          DC include list
+      --cluster-include <CLUSTER_INCLUDE>...
+          Cluster include list
+      --dc-exclude <DC_EXCLUDE>...
+          DC exclude list
+      --cluster-exclude <CLUSTER_EXCLUDE>...
+          Cluster exclude list
+      --vm-exclude <VM_EXCLUDE>...
+          VM exclude list
+      --legacy
+          Legacy mode - pre v4.1.2
+      --dc-site-map <DC_SITE_MAP>
+          Map DCs to a site - requires a JSON file
+      --dc-site-map-template
+          Creates Map DC JSON template
+  -d, --do-not-use-vpartition
+          Don't use vPartition capacity
+      --dc-print
+          Print DCs
+  -v, --vm-table-print
+          Print VM table
+      --flatten
+          Flatten to single site, repo and workload
+      --flatten-site
+          Flatten to single cluster per-site
+      --plot
+          Plot capacity data in a bar chart
+      --anonymize
+          Anonymize the data
+  -h, --help
+          Print help (see more with '--help')
+  -V, --version
+          Print version
 ```
 
-If you are using an older RvTools version (pre v4.1.2) you will need to use the --legacy flag. This will used the older "In Use MB"/ "Consumed MB" columns instead of the "In Use MiB"/ "Consumed MiB" columns.
-
-## RvTools columns
-
-The RvTools columns used are:
-
-| Sheet      | Column       |
-| ---------- | ------------ |
-| vInfo      | VM           |
-| vInfo      | powerState   |
-| vInfo      | In Use MiB   |
-| vInfo      | Datacenter   |
-| vInfo      | Cluster      |
-| vPartition | VM           |
-| vPartition | powerState   |
-| vPartition | Consumed MiB |
-
-If any of the vInfo columns are missing or have a different name, the tool will not work. If the vPartition tab is missing or has a different name, the tool will continue to use the vInfo capacity figures only. It will show a warning for the file that is missing that tab at the top of the output.
-
-If any of the Clusters cells are empty they will be shown under an "None" cluster in the results.
-
-## General Flags
-
-Select the file or files to read with the following:
+### Input files
 
 ```
--r rvtools1.xlsx
-
--r rvtools1.xlsx,rvtools2.xlsx
+-r rvtools1.xlsx,rvtools2.xlsx        # comma-separated; quote names with spaces
+-D ./exports                          # every .xlsx in a folder
+-D ./site_a,./site_b --recursive      # several folders, including subfolders
 ```
 
-Note that the delimiter is a comma.
+- `-r` and `-D` can be combined. Any file picked up twice is only read once. At least one input is required.
+- `-D` matches `.xlsx` regardless of case, skips hidden files and Excel `~$` lock files, and processes files in sorted order. `--recursive` also searches subfolders, skipping hidden ones. An empty or missing folder is an error.
+- Use `--legacy` for RVTools exports older than v4.1.2. It reads the `In Use MB` / `Consumed MB` columns instead of the `MiB` ones.
 
-Also, if there are spaces in the file names, you will need to enclose them in quotes, and pass them at the beginning of the list.
+Columns read (names must match exactly):
 
-```
--r "rvtools 1.xlsx",rvtools2.xlsx
-```
+| Sheet      | Columns |
+| ---------- | ------- |
+| vInfo      | `VM`, `Powerstate`, `Datacenter`, `Cluster`, `In Use MiB` |
+| vPartition | `VM`, `Powerstate`, `Consumed MiB` |
 
-Alternatively point the tool at one or more folders:
+If a workbook has no `vPartition` tab, a warning is printed and vInfo capacity is used for that file. VMs with an empty cluster are grouped under `None`.
 
-```
--D ./rvtools_exports
--D ./site_a,./site_b
--D ./rvtools_exports --recursive
-```
+### Capacity
 
-Every `.xlsx` file in the folder is used (the extension match ignores case). Hidden files, Excel lock files (`~$...`) and other file types are skipped, and files are processed in sorted order. `--recursive` also searches subfolders, skipping hidden ones. `-D` can be combined with `-r`, and any file picked up twice is only read once. The list of files used is printed to stderr, so `--format json/csv` output on stdout stays clean. If a folder contains no `.xlsx` files, the tool stops with an error.
+By default, the tool sums each VM's vPartition `Consumed` values and uses the lower of that total and the vInfo `In Use` value. `-d/--do-not-use-vpartition` uses vInfo only. Powered-off VMs are excluded unless you pass `-i/--include-powered-off`.
 
-You can modify the output file using different flags (powered off VMs are excluded by default).
+### Filtering
 
-```
--i / --include-powered-off
-```
+`--dc-include`, `--cluster-include`, `--dc-exclude`, `--cluster-exclude` and `--vm-exclude` each take a comma-separated list. Put any quoted names containing spaces first, e.g. `--dc-include "new york dc",spain_dc`. `--dc-print` lists the datacenter names it found.
 
-In normal operation, the powered-off VMs will be excluded; using this flag will add them to the results.
+### Summary output (`-s/--show-info`)
 
-```
---retention 30D1W1M1Y
-```
+| `--format` | Output |
+| ---------- | ------ |
+| `table`    | Default. Box-drawn terminal table. |
+| `json`     | `{"rows": [{"datacenter","cluster","capacity_tb","vm_count"}], "totals": {"capacity_tb","vm_count"}}`. Capacity is unrounded. |
+| `csv`      | Header `datacenter,cluster,capacity_tb,vm_count`, then one row per cluster. Capacity to 2 decimals. |
+| `md`       | GitHub Markdown table with a final **Total** row. |
 
-Custom retention set for all workloads, MUST following the pattern 30D1W1M1Y, even if some of the values are 0.
+Rows are sorted by capacity, largest first. Capacity is in TB (binary, base 1024).
 
-```
--p / --print
-```
+`--summary-file <path>` writes the rendered summary to that file instead of stdout, and implies `-s`. The path is used **exactly as given**, with no extension added, so match it to the format (`--format csv --summary-file summary.csv`).
 
-Print will display the struct representation of the file to the terminal.
+### Grouping: `--flatten`, `--flatten-site`, `--dc-site-map`
 
-```
---print-json
-```
-
-This will print to the screen the current RVTools data in JSON format with all filters applied.
-
-```
--s / --show-info
-```
-
-This will print a table of the DC-level information, including cluster, capacity and VM count.
-
-This can be useful in deciding if there is anything that needs to be excluded.
-
-This can be run alone with only the RVTools file specified. It will not create a VSE file unless you specify the --output-file flag.
-
-### Summary output formats
-
-```
---format table|json|csv|md
---summary-file <path>
-```
-
-`--format` controls how the `--show-info` summary is rendered (rows are always sorted by capacity, largest first):
-
-| Format  | Output |
-| ------- | ------ |
-| `table` | Default. The box-drawn terminal table, unchanged. |
-| `json`  | `{"rows": [{"datacenter", "cluster", "capacity_tb", "vm_count"}], "totals": {"capacity_tb", "vm_count"}}`. Capacity is unrounded. |
-| `csv`   | Header `datacenter,cluster,capacity_tb,vm_count` then one row per cluster, capacity to 2 decimals. |
-| `md`    | GitHub Markdown table with a final **Total** row. |
-
-When `json` or `csv` is written to stdout, the trailing `Total VMs` / `Total Capacity` / `Average VM Size` lines are suppressed so the output can be piped or redirected cleanly.
-
-`--summary-file` writes the rendered summary to a file instead of stdout, and implies `--show-info`.
-
-The summary reflects `--flatten`, `--flatten-site` and `--dc-site-map`. Note that `--flatten` and `--flatten-site` are ignored when `--dc-site-map` is given, and if both flatten flags are passed together neither is applied.
-
-```
-rvtools2vse -r rvtools.xlsx -s --format csv > summary.csv
-rvtools2vse -r rvtools.xlsx --flatten-site --format md --summary-file summary.md
-rvtools2vse -r rvtools.xlsx -s --flatten --format json | jq '.totals'
-```
-
-Example `--flatten-site --format md`:
-
-| Datacenter | Cluster | Capacity (TB) | VM Count |
-|---|---|---:|---:|
-| DC-East | DC-East_cluster | 4.65 | 3 |
-| DC-West | DC-West_cluster | 0.86 | 2 |
-| **Total** | | **5.51** | **5** |
-
-```
--d / --do-not-use-vpartition
-```
-
-The tool will also use the vPartition capacity figure for a VM which normally reduces the capacity in normal use.
-
-Using this flag will mean only the vInfo capacity figures will be used.
-
-```
---dc-print
-```
-
-Prints a list of the Datacenters.
-
-```
---vm-table-print
-```
-
-Prints a table of the VMs and their capacity figures. Useful for checking the VMs that are being included.
-
-```
---flatten
-```
-
-This flag will flatten all the VM counts and capacity into a single Workloaded under a DC called "DC1" and cluster called "Cluster1".
-
-This is useful if you want to quickly aggregate all the results into a single Workload.
-
-```
---flatten-site
-```
-
-This flag will flatten the clusters into a single workload per DC (site).
-
-```
---plot
-```
-
-This flag will plot the site-level capacity figures in a bar chart (filtering values with less than 1TB of capacity).
-
-It doesn't really help much, but it looks cool, and was fun to write!
-
-```
---anonymize
-```
-
-This flag hashes the DC and Cluster information.
-
-```
--o / --output-file vse_rvtools
-```
-
-This will create a VSE file with the name specified.
-
-## Includes and Excludes
-
-You can use include and exclude items from the results using several flags.
-
-| flag              | Description       |
-| ----------------- | ----------------- |
-| --dc-include      | Included DCs      |
-| --cluster-include | Included Clusters |
-| --dc-exclude      | Excluded DCs      |
-| --cluster-exclude | Excluded Clusters |
-| --vm-exclude      | Excluded VMs      |
-
-The lists that are passed need to be separated by a comma.
-
-```
-rvtools2vse -r rvtools.xlsx --dc-include dc1,dc2
-```
-
-If some of the names have a space you will need to pass these as the first items in the list
-
-```
-rvtools2vse -r rvtools.xlsx --dc-include "new york dc","france dc",spain_dc
-```
-
-## DC Mapping
-
-You can map DC names to a specific site using the --dc_site_map flag passing in the path to a json file with the mapping.
-
-```
---dc_site_map mapping.json
-```
-
-The structure of the json file is:
+- `--flatten-site` gives one row per datacenter, with the cluster shown as `<DC>_cluster`.
+- `--flatten` combines everything into a single `DC1` / `Cluster1` row.
+- `--dc-site-map map.json` groups datacenters into named sites. A datacenter belongs to a group when its name *contains* one of the group's `dc_names`; datacenters that match nothing are dropped. Run `--dc-site-map-template` to write a starter `dc_mapper.json` (the tool exits after creating it).
 
 ```
 [
-  {
-    "group_name": "DC1",
-    "dc_names": ["site1", "site2"]
-  },
-  {
-    "group_name": "DC2",
-    "dc_names": ["site3", "site4"]
-  }
+  { "group_name": "Site1", "dc_names": ["dc-a", "dc-b"] },
+  { "group_name": "Site2", "dc_names": ["dc-c"] }
 ]
 ```
 
-```
---dc-site-map-template
-```
+When `--dc-site-map` is given, `--flatten` and `--flatten-site` are ignored. If `--flatten` and `--flatten-site` are passed together, neither is applied.
 
-Creates a template JSON file for the DC site map. Note that this is standalone and the program will exit after creating the file.
+### stdout vs stderr
 
-You can get the full list of the DC by using the --dc-print flag.
+- The summary (unless `--summary-file` is set), `--print-json`, `-v`, `-p`, `--dc-print` and `--plot` go to **stdout**.
+- The trailing `Total VMs / Total Capacity / Average VM Size` lines also go to stdout. They are left out when `--print-json` is set, or when `--format json|csv` is written to stdout, so that output can be piped.
+- The list of files picked up by `-D`, missing-vPartition warnings and the "Summary written to" message go to **stderr**.
 
-NOTE: There aren't any checks to make sure the DC names are valid, so if you pass in a DC name that doesn't exist it will be ignored.
+### Other options
 
-## Full Examples
+- `--print-json` prints the filtered per-VM data as JSON.
+- `-v/--vm-table-print` prints a per-VM table.
+- `--plot` draws a terminal bar chart of per-site capacity (sites over 1 TB).
+- `--anonymize` hashes DC, cluster and VM names.
+- `-o/--output-file`, `-p/--print` and `--retention` are for the legacy VSE output. `-o` appends `.json` if it is missing. Each datacenter becomes a site with one repository, and each cluster becomes a workload. Workloads get 30-day retention (or the `--retention 30D1W1M1Y` pattern you give), a 24h full / 12h incremental window and the "Generic Optimistic" data property.
 
-```
-rvtools2vse -r rvtools.xlsx \
---include-powered-off \
---do-not-use-vpartition \
---dc-exclude dc1 \
---cluster-exclude cluster1,cluster2 \
---vm-exclude vm1,vm2 \
---show-info \
---output-file vse_rvtools.json
-```
+## Examples
 
 ```
-rvtools2vse -r rvtools1.xlsx,rvtools2 \
---dc_site_map mapping.json
---show-info \
---plot \
---output-file vse_rvtools.json
+# Quick summary of every export in a folder
+rvtools2vse -D ./exports -s
+
+# One row per site as Markdown, written to a file
+rvtools2vse -D ./exports --flatten-site --format md --summary-file summary.md
+
+# CSV for a spreadsheet, including powered-off VMs, excluding a cluster
+rvtools2vse -r rv1.xlsx,rv2.xlsx -i --cluster-exclude test-cl -s --format csv > summary.csv
+
+# Grand total as JSON
+rvtools2vse -D ./exports --flatten -s --format json | jq '.totals'
+
+# Group DCs into sites
+rvtools2vse --dc-site-map-template          # edit dc_mapper.json
+rvtools2vse -D ./exports --dc-site-map dc_mapper.json -s --format md
 ```
 
-## Output file info
+## Known issues
 
-- The tool will create a site per Datacenter
-- Each Datacenter will have a single performance tier repository
-- Each Cluster will be converted into a Workload and assigned to its respective Site (DC) and Repository
-- All workloads are assigned the same:
-  - 30-day retention period (unless specified using the --retention flag)
-  - 24 full/ 12 inc hour backup window
-  - "Generic Optimistic" data property
-- Repositories are set to use ReFS/XFS
-
-The aim is to get the data into the VSE, and which point you can modify it as required.
-
-## vPartition capacity
-
-The tool in normal use will read the vPartition tab, group all the partitions for a VM together, and create a total VM capacity figure.
-
-```
-VM1 100GB
-Partition1 50GB
-Partition2 50GB
-```
-
-The tool then goes through all the vInfo VMs, and where there is a match on the VM name and the vParition value is lower than the vInfo value, the vParition value is used.
-
-## Common issues
-
-You may find that the tool cannot find the "vInfo" or "vParition" tabs, to solve this open the file and rename the tabs and save the file.
-
-I do not know why this happens, but I assume that it has something to do with the underlying XML file not being updated with the tab name.
+- A `vPartition` tab without a `Powerstate` column causes a hard failure. Pass `-d` (vPartition is then not read) or add the column.
+- `--anonymize` hashes VM names before the vInfo/vPartition join, so the join silently fails and vInfo capacity is used (totals come out higher than without `--anonymize`).
+- In the `-v` VM table, the `vPartition (GiB)` column shows the vInfo capacity, so it always matches the Capacity column.
+- If the tool can't find the `vInfo` or `vPartition` tab even though it exists, open the file in Excel, rename the tab, and save it again.
