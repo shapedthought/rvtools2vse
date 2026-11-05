@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+use crate::summary::SummaryFormat;
+
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 pub struct Cli {
@@ -32,6 +34,14 @@ pub struct Cli {
     /// Print DC level summary
     #[clap(short, long, action, default_value_t = false)]
     pub show_info: bool,
+
+    /// Output format for the --show-info summary
+    #[clap(long, value_enum, default_value_t = SummaryFormat::Table)]
+    pub format: SummaryFormat,
+
+    /// Write the --show-info summary to a file instead of stdout (implies --show-info)
+    #[clap(long, value_parser)]
+    pub summary_file: Option<PathBuf>,
 
     /// DC include list
     #[clap(long, value_delimiter = ',', num_args = 1..)]

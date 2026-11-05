@@ -45,6 +45,8 @@ Options:
   -p, --print                                 Print converted data (VSE format)
       --print-json                            Print the VM info to JSON
   -s, --show-info                             Print DC level summary
+      --format <FORMAT>                       Output format for the --show-info summary [default: table] [possible values: table, json, csv, md]
+      --summary-file <SUMMARY_FILE>           Write the --show-info summary to a file instead of stdout (implies --show-info)
       --dc-include <DC_INCLUDE>...            DC include list
       --cluster-include <CLUSTER_INCLUDE>...  Cluster include list
       --dc-exclude <DC_EXCLUDE>...            DC exclude list
@@ -138,6 +140,42 @@ This will print a table of the DC-level information, including cluster, capacity
 This can be useful in deciding if there is anything that needs to be excluded.
 
 This can be run alone with only the RVTools file specified. It will not create a VSE file unless you specify the --output-file flag.
+
+### Summary output formats
+
+```
+--format table|json|csv|md
+--summary-file <path>
+```
+
+`--format` controls how the `--show-info` summary is rendered (rows are always sorted by capacity, largest first):
+
+| Format  | Output |
+| ------- | ------ |
+| `table` | Default. The box-drawn terminal table, unchanged. |
+| `json`  | `{"rows": [{"datacenter", "cluster", "capacity_tb", "vm_count"}], "totals": {"capacity_tb", "vm_count"}}`. Capacity is unrounded. |
+| `csv`   | Header `datacenter,cluster,capacity_tb,vm_count` then one row per cluster, capacity to 2 decimals. |
+| `md`    | GitHub Markdown table with a final **Total** row. |
+
+When `json` or `csv` is written to stdout, the trailing `Total VMs` / `Total Capacity` / `Average VM Size` lines are suppressed so the output can be piped or redirected cleanly.
+
+`--summary-file` writes the rendered summary to a file instead of stdout, and implies `--show-info`.
+
+The summary reflects `--flatten`, `--flatten-site` and `--dc-site-map`. Note that `--flatten` and `--flatten-site` are ignored when `--dc-site-map` is given, and if both flatten flags are passed together neither is applied.
+
+```
+rvtools2vse -r rvtools.xlsx -s --format csv > summary.csv
+rvtools2vse -r rvtools.xlsx --flatten-site --format md --summary-file summary.md
+rvtools2vse -r rvtools.xlsx -s --flatten --format json | jq '.totals'
+```
+
+Example `--flatten-site --format md`:
+
+| Datacenter | Cluster | Capacity (TB) | VM Count |
+|---|---|---:|---:|
+| DC-East | DC-East_cluster | 4.65 | 3 |
+| DC-West | DC-West_cluster | 0.86 | 2 |
+| **Total** | | **5.51** | **5** |
 
 ```
 -d / --do-not-use-vpartition
