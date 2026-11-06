@@ -7,7 +7,7 @@ const BASELINE: &str = "testdata/regression_baseline.xlsx";
 const NO_PART_POWER: &str = "testdata/regression_no_part_powerstate.xlsx";
 
 fn run(args: &[&str]) -> (bool, String, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_rvtools2vse"))
+    let out = Command::new(env!("CARGO_BIN_EXE_rvsum"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .args(args)
         .output()
@@ -190,7 +190,7 @@ fn partition_capped_at_vdisk() {
 
 #[test]
 fn exceptions_file_csv() {
-    let path = std::env::temp_dir().join("rvtools2vse_exceptions_test.csv");
+    let path = std::env::temp_dir().join("rvsum_exceptions_test.csv");
     let _ = std::fs::remove_file(&path);
     let path_s = path.to_str().unwrap();
     let (ok, _, stderr) = run(&[
@@ -287,7 +287,7 @@ fn powered_on_without_vpartition_noted() {
 
 #[test]
 fn exceptions_file_infers_csv_extension() {
-    let path = std::env::temp_dir().join("rvtools2vse_ex_infer.csv");
+    let path = std::env::temp_dir().join("rvsum_ex_infer.csv");
     let _ = std::fs::remove_file(&path);
     let path_s = path.to_str().unwrap();
     let (ok, _, stderr) = run(&["-r", DISKS, "-s", "--exceptions-file", path_s]);
@@ -304,7 +304,7 @@ fn exceptions_file_infers_csv_extension() {
 
 #[test]
 fn exceptions_file_explicit_format_overrides_extension() {
-    let path = std::env::temp_dir().join("rvtools2vse_ex_force.csv");
+    let path = std::env::temp_dir().join("rvsum_ex_force.csv");
     let _ = std::fs::remove_file(&path);
     let path_s = path.to_str().unwrap();
     let (ok, _, stderr) = run(&[
@@ -413,7 +413,7 @@ fn kept_rdm_summary_respects_other_exclusions_and_exports_schema() {
         (2.375, 5)
     );
 
-    let path = std::env::temp_dir().join("rvtools2vse_disk_summary_details.json");
+    let path = std::env::temp_dir().join("rvsum_disk_summary_details.json");
     let (ok, _, stderr) = run(&[
         "-r",
         DISK_SUMMARY,
@@ -437,4 +437,62 @@ fn kept_rdm_summary_respects_other_exclusions_and_exports_schema() {
     assert_eq!(floor["capacity_mib"], 0.0); // raw cap is masked entirely by vInfo
     assert!(floor["action"].as_str().unwrap().contains("guest capped"));
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn renamed_binary_and_library_identity() {
+    // Compile against the public library under the new crate name as well.
+    let _: fn() -> anyhow::Result<()> = rvsum::run;
+    let (ok, stdout, stderr) = run(&["--version"]);
+    assert!(ok, "{stderr}");
+    assert_eq!(stdout, format!("rvsum {}\n", env!("CARGO_PKG_VERSION")));
+    assert!(stderr.is_empty(), "{stderr}");
+
+    let (ok, stdout, stderr) = run(&["--help"]);
+    assert!(ok, "{stderr}");
+    assert!(stdout.contains("Usage: rvsum [OPTIONS]"), "{stdout}");
+    assert!(!stdout.contains("rvtools2vse"), "{stdout}");
+}
+
+#[test]
+fn readme_flag_reference_matches_long_help() {
+    let (ok, help, stderr) = run(&["--help"]);
+    assert!(ok, "{stderr}");
+    let options = help.split_once("Options:\n").unwrap().1;
+    let reference = include_str!("../README.md")
+        .split_once("<!-- CLI reference start -->")
+        .unwrap()
+        .1
+        .split_once("<!-- CLI reference end -->")
+        .unwrap()
+        .0;
+    let is_option = |line: &str| line.starts_with("  -") || line.starts_with("      --");
+    let headings = |text: &str| {
+        text.lines()
+            .filter(|line| is_option(line))
+            .map(str::to_owned)
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    assert_eq!(
+        headings(options),
+        headings(reference),
+        "README flag list drifted"
+    );
+
+    let mut block = String::new();
+    for line in options.lines() {
+        if is_option(line) && !block.is_empty() {
+            assert!(
+                reference.contains(block.trim_end()),
+                "README help text drifted: {block}"
+            );
+            block.clear();
+        }
+        block.push_str(line);
+        block.push('\n');
+    }
+    assert!(
+        reference.contains(block.trim_end()),
+        "README help text drifted: {block}"
+    );
 }

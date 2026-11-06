@@ -1,10 +1,10 @@
 [package]
-name = "rvtools2vse"
+name = "rvsum"
 version = "1.1.2"
 edition = "2021"
 rust-version = "1.88"
-description = "Offline RVTools xlsx summariser with VADP-oriented disk awareness (legacy VSE JSON output still available)"
-repository = "https://github.com/shapedthought/rvtools2vse"
+description = "Quick, offline summaries of RVTools exports for backup sizing"
+repository = "https://github.com/shapedthought/rvsum"
 readme = "README.md"
 license = "MIT"
 authors = ["Ed Howard"]

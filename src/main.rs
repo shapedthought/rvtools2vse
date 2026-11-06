@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rvtools2vse::run;
+use rvsum::run;
 
 fn main() -> Result<()> {
     run()?;

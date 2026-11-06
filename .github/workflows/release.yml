@@ -12,7 +12,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
-  IMAGE_NAME: shapedthought/rvtools2vse
+  IMAGE_NAME: shapedthought/rvsum
 
 jobs:
   build-binaries:
@@ -25,28 +25,28 @@ jobs:
           - name: linux-x86_64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            bin: rvtools2vse
-            asset: rvtools2vse-linux-x86_64
+            bin: rvsum
+            asset: rvsum-linux-x86_64
           - name: linux-aarch64
             os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            bin: rvtools2vse
-            asset: rvtools2vse-linux-aarch64
+            bin: rvsum
+            asset: rvsum-linux-aarch64
           - name: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            bin: rvtools2vse.exe
-            asset: rvtools2vse-windows-x86_64.exe
+            bin: rvsum.exe
+            asset: rvsum-windows-x86_64.exe
           - name: macos-x86_64
             os: macos-15-intel
             target: x86_64-apple-darwin
-            bin: rvtools2vse
-            asset: rvtools2vse-macos-x86_64
+            bin: rvsum
+            asset: rvsum-macos-x86_64
           - name: macos-aarch64
             os: macos-15
             target: aarch64-apple-darwin
-            bin: rvtools2vse
-            asset: rvtools2vse-macos-aarch64
+            bin: rvsum
+            asset: rvsum-macos-aarch64
     steps:
       - uses: actions/checkout@v4
 
@@ -85,7 +85,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bin-${{ matrix.name }}
+          name: rvsum-${{ matrix.name }}
           path: |
             ${{ matrix.asset }}
             ${{ matrix.asset }}.sha256
@@ -142,7 +142,7 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v4
         with:
-          pattern: bin-*
+          pattern: rvsum-*
           merge-multiple: true
           path: dist
 

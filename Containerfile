@@ -1,8 +1,8 @@
-# Multi-stage Containerfile for rvtools2vse
+# Multi-stage Containerfile for rvsum
 # Works with podman build and docker build
-# Run from the root of your rvtools2vse clone:
-# Build: podman build -t rvtools2vse:latest -f Containerfile .
-# Or:    docker build -t rvtools2vse:latest -f Containerfile .
+# Run from the root of your rvsum clone:
+# Build: podman build -t rvsum:latest -f Containerfile .
+# Or:    docker build -t rvsum:latest -f Containerfile .
 
 # Builder and runtime are both Debian bookworm, so the binary's glibc matches.
 # rust:1-bookworm tracks the newest stable Rust (needs 1.88+) on bookworm.
@@ -15,7 +15,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
 RUN cargo build --release --locked \
-    && strip target/release/rvtools2vse
+    && strip target/release/rvsum
 
 # Runtime stage: small image with just the binary and needed libs
 FROM debian:bookworm-slim
@@ -26,10 +26,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1000 --shell /bin/bash appuser
 
-COPY --from=builder /src/target/release/rvtools2vse /usr/local/bin/rvtools2vse
+COPY --from=builder /src/target/release/rvsum /usr/local/bin/rvsum
 
 USER appuser
 WORKDIR /data
 
-ENTRYPOINT ["rvtools2vse"]
+ENTRYPOINT ["rvsum"]
 CMD ["--help"]

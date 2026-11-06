@@ -1,3 +1,5 @@
+//! rvsum: offline RVTools summaries for backup sizing.
+
 mod disk;
 mod excel;
 mod helpers;
