@@ -1,6 +1,6 @@
 # rvtools2vse
 
-A fast, offline command-line summariser for [RVTools](https://www.robware.net/) `.xlsx` exports.
+A fast, offline command-line summariser for [RVTools](https://www.dell.com/support/kbdoc/en-gb/000325532/rvtools-4-7-1-installer) `.xlsx` exports. RVTools is now owned by Dell (previously Robware).
 
 It reads the `vInfo` (and, if present, `vPartition`) tabs from one or more RVTools files, filters VMs, and rolls up VM count and capacity per datacenter and cluster. You can print the summary as a terminal table, JSON, CSV or Markdown, or write it to a file.
 
