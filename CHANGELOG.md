@@ -1,17 +1,19 @@
 # Changelog
 
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
+
+## [1.1.1] - 2026-11-06
 
 ### Fixed
 - `--exceptions-file out.csv` (and `--summary-file`) now infer format from the file extension unless `--format` is set, so CSV/JSON files are no longer written as box-drawn tables by default.
 
 ### Changed
 - Exceptions on stderr are a compact summary by default; `--verbose` prints the full list. The exceptions file always contains the full list.
-
-All notable changes to this project are documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.1.0] - 2026-11-06
 
