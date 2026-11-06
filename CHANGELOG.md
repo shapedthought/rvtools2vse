@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-06
+
 ### Fixed
 - Disk exception summaries now distinguish kept from excluded disks (including overlapping physical-RDM/independent policies), count unique disk identities across VMs/files, and label sizes as **provisioned**, with attachment counts retained. Overlapping categories are explicitly non-additive; detailed exports retain every attachment/reason and their existing columns.
 - Report the actual estimated-capacity change for `--keep-independent` / `--keep-rdm` by comparing the same sizing calculation with just that flag toggled; provisioned disk sizes are no longer presented as estimate changes.
