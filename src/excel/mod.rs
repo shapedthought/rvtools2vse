@@ -1,7 +1,9 @@
 use crate::{helpers, models::errors::MyError};
 use calamine::{open_workbook, Reader, Xlsx, XlsxError};
-use helpers::{as_display_string, is_independent_disk_mode, is_physical_rdm_mode, is_shared_disk_mode, ColPosition, GetFloat, GetString};
-use fastmurmur3;
+use helpers::{
+    as_display_string, is_independent_disk_mode, is_physical_rdm_mode, is_shared_disk_mode,
+    ColPosition, GetFloat, GetString,
+};
 
 use crate::models::{
     cli::Cli,
@@ -13,7 +15,7 @@ type ExcelSheets = (Vec<Vinfo>, Vec<Vpartition>, Vec<Vdisk>);
 pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
     let mut excel_vec: Vec<Xlsx<_>> = Vec::new();
 
-    if cli.rvtools_files.len() == 0 {
+    if cli.rvtools_files.is_empty() {
         return Err(MyError::RvtoolsError(
             "No RVTools file or files specified".to_string(),
         ));
@@ -37,9 +39,9 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
             Err(e) => return Err(e.into()),
         };
 
-        let vm_column = workbook.get_col_pos(&"VM".to_string())?;
+        let vm_column = workbook.get_col_pos("VM")?;
 
-        let power_column = workbook.get_col_pos(&"Powerstate".to_string())?;
+        let power_column = workbook.get_col_pos("Powerstate")?;
 
         let cap_string = if cli.legacy {
             "In Use MB"
@@ -47,13 +49,13 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
             "In Use MiB"
         };
 
-        let cap_column = workbook.get_col_pos(&cap_string.to_string())?;
+        let cap_column = workbook.get_col_pos(cap_string)?;
 
-        let dc_column = workbook.get_col_pos(&"Datacenter".to_string())?;
+        let dc_column = workbook.get_col_pos("Datacenter")?;
 
-        let cluster_column = workbook.get_col_pos(&"Cluster".to_string())?;
+        let cluster_column = workbook.get_col_pos("Cluster")?;
 
-        let tools_column = workbook.get_col_pos(&"Tools".to_string()).ok();
+        let tools_column = workbook.get_col_pos("Tools").ok();
 
         for row in workbook.rows().enumerate().skip(1) {
             let power_state = &row.1[power_column]
@@ -66,7 +68,7 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
             let mut vm_name =
                 &row.1[vm_column].get_string_value("vInfo - column 'VM'".to_string(), row.0 + 1)?;
 
-            let anonymized_vm_name = anon_data(&vm_name, &cli);
+            let anonymized_vm_name = anon_data(vm_name, cli);
             vm_name = &anonymized_vm_name;
 
             let cap_error_string = if cli.legacy {
@@ -75,8 +77,8 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                 "vInfo - column 'Capacity MiB'"
             };
 
-            let cap = &row.1[cap_column]
-                .get_float_value(cap_error_string.to_string(), row.0 + 1)?;
+            let cap =
+                &row.1[cap_column].get_float_value(cap_error_string.to_string(), row.0 + 1)?;
 
             let mut dc = &row.1[dc_column]
                 .get_string_value("vInfo - column 'Datacenter'".to_string(), row.0 + 1)?;
@@ -92,7 +94,7 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                 .get_string_value("vInfo - column 'Cluster'".to_string(), row.0 + 1)?;
 
             let mut anon_cluster = cluster.clone();
-            if cli.anonymize { 
+            if cli.anonymize {
                 let hash = fastmurmur3::hash(cluster.as_bytes());
                 anon_cluster = hash.to_string();
             }
@@ -156,21 +158,24 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
         };
 
         if let Some(partition) = partition {
-            if partition.is_err() || cli.do_not_use_vpartition {
-                if !cli.do_not_use_vpartition {
-                    Err(MyError::VpartitionError(
-                        "vPartition sheet not found".to_string(),
-                    ))?;
-                }
+            if cli.do_not_use_vpartition {
+                // skip reading partitions
             } else {
-                let partition = partition.unwrap();
+                let partition = match partition {
+                    Ok(range) => range,
+                    Err(_) => {
+                        return Err(MyError::VpartitionError(
+                            "vPartition sheet not found".to_string(),
+                        ));
+                    }
+                };
 
-                let part_vm_column = partition.get_col_pos(&"VM".to_string())?;
+                let part_vm_column = partition.get_col_pos("VM")?;
 
                 // Powerstate is optional on vPartition: power state is already
                 // filtered on vInfo, and partitions only count when they join to
                 // a vInfo VM, so a missing column just skips the extra filter.
-                let part_power_column = partition.get_col_pos(&"Powerstate".to_string()).ok();
+                let part_power_column = partition.get_col_pos("Powerstate").ok();
                 if part_power_column.is_none() {
                     eprintln!(
                         "vPartition in {:?} has no Powerstate column; using vInfo power state via the VM join.",
@@ -184,7 +189,7 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                     "Consumed MiB"
                 };
 
-                let part_cap_column = partition.get_col_pos(&consumed_string.to_string())?;
+                let part_cap_column = partition.get_col_pos(consumed_string)?;
                 for row in partition.rows().enumerate().skip(1) {
                     if let Some(col) = part_power_column {
                         let power_state = &row.1[col].get_string_value(
@@ -206,10 +211,8 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                         "vParition - column 'Capacity MiB'"
                     };
 
-                    let cap = &row.1[part_cap_column].get_float_value(
-                        cap_error_string.to_string(),
-                        row.0 + 1,
-                    )?;
+                    let cap = &row.1[part_cap_column]
+                        .get_float_value(cap_error_string.to_string(), row.0 + 1)?;
 
                     // Hash with the same mapping as vInfo so the join still matches
                     part_vec.push(Vpartition {
@@ -218,13 +221,11 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                     })
                 }
             }
-        } else {
-            if !cli.do_not_use_vpartition {
-                eprintln!(
-                    "vPartition sheet not found in {:?}, continuing without it.",
-                    cli.rvtools_files[i]
-                );
-            }
+        } else if !cli.do_not_use_vpartition {
+            eprintln!(
+                "vPartition sheet not found in {:?}, continuing without it.",
+                cli.rvtools_files[i]
+            );
         }
 
         let disk_sheet = match excel.worksheet_range("vDisk") {
@@ -241,31 +242,31 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
             }
             Some(Err(e)) => return Err(e.into()),
             Some(Ok(disk)) => {
-                let disk_vm_column = disk.get_col_pos(&"VM".to_string())?;
+                let disk_vm_column = disk.get_col_pos("VM")?;
                 let disk_cap_string = if cli.legacy {
                     "Capacity MB"
                 } else {
                     "Capacity MiB"
                 };
-                let disk_cap_column = disk.get_col_pos(&disk_cap_string.to_string())?;
-                let disk_mode_column = disk.get_col_pos(&"Raw Comp. Mode".to_string()).ok();
+                let disk_cap_column = disk.get_col_pos(disk_cap_string)?;
+                let disk_mode_column = disk.get_col_pos("Raw Comp. Mode").ok();
                 if disk_mode_column.is_none() {
                     eprintln!(
                         "vDisk in {:?} has no 'Raw Comp. Mode' column; physical RDMs cannot be detected.",
                         cli.rvtools_files[i]
                     );
                 }
-                let disk_label_column = disk.get_col_pos(&"Disk".to_string()).ok();
-                let disk_power_column = disk.get_col_pos(&"Powerstate".to_string()).ok();
+                let disk_label_column = disk.get_col_pos("Disk").ok();
+                let disk_power_column = disk.get_col_pos("Powerstate").ok();
                 let persistence_column = disk
-                    .get_col_pos(&"Disk Mode".to_string())
+                    .get_col_pos("Disk Mode")
                     .ok()
-                    .or_else(|| disk.get_col_pos(&"Mode".to_string()).ok());
+                    .or_else(|| disk.get_col_pos("Mode").ok());
                 let sharing_column = disk
-                    .get_col_pos(&"Sharing".to_string())
+                    .get_col_pos("Sharing")
                     .ok()
-                    .or_else(|| disk.get_col_pos(&"Sharing mode".to_string()).ok());
-                let uuid_column = disk.get_col_pos(&"Disk UUID".to_string()).ok();
+                    .or_else(|| disk.get_col_pos("Sharing mode").ok());
+                let uuid_column = disk.get_col_pos("Disk UUID").ok();
 
                 for row in disk.rows().enumerate().skip(1) {
                     if let Some(col) = disk_power_column {
@@ -343,11 +344,10 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
     Ok((info_vec, part_vec, disk_vec))
 }
 
-fn anon_data(item: &String, cli: &Cli) -> String {
-    let mut anon_item = item.clone();
+fn anon_data(item: &str, cli: &Cli) -> String {
     if cli.anonymize {
-        let hash = fastmurmur3::hash(anon_item.as_bytes());
-        anon_item = hash.to_string();
+        fastmurmur3::hash(item.as_bytes()).to_string()
+    } else {
+        item.to_string()
     }
-    anon_item
 }

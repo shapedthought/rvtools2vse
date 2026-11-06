@@ -133,7 +133,12 @@ mod tests {
     fn dedupes_files_and_dirs() {
         let t = setup();
         let b = t.path().join("b.xlsx");
-        let v = resolve_inputs(std::slice::from_ref(&b), &[t.path().into(), t.path().into()], false).unwrap();
+        let v = resolve_inputs(
+            std::slice::from_ref(&b),
+            &[t.path().into(), t.path().into()],
+            false,
+        )
+        .unwrap();
         assert_eq!(names(&v, t.path()), ["b.xlsx", "a.XLSX"]);
     }
 

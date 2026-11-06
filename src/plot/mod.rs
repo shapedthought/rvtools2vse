@@ -11,7 +11,7 @@ pub fn plot_data(data: Vec<f64>, site_names: Vec<String>) {
     plot.set_domain(Domain(0.0..item_count))
         .set_codomain(Domain(0.0..*max_value))
         .set_title("Capacity")
-        .set_x_label(format!("{}", site_names.join(", ")).as_str())
+        .set_x_label(site_names.join(", ").to_string().as_str())
         .set_y_label("y: Capacity (TB)")
         .set_size(Size::new(150, 75))
         .add_plot(Box::new(plot::Bars::new(data)));

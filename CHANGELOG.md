@@ -1,0 +1,35 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.1.0] - 2026-11-06
+
+First numbered release after the RVTools summariser refresh (previous crate version was `0.1.0`).
+
+### Added
+- Summary output formats for `--show-info`: `--format table|json|csv|md` and `--summary-file` (#2)
+- Folder input: `-D/--rvtools-dir` and `--recursive` (#4)
+- `Containerfile` and refreshed README (#6)
+- Disk awareness phase 1: optional vDisk tab, physical RDM exclusion (`--keep-rdm`), vPartition capped at eligible vDisk capacity, exceptions report (`--exceptions-file`) (#9)
+- Disk awareness phase 2: independent disks (`--keep-independent`), shared/multi-writer de-dupe, VMware Tools heuristics (#10)
+- Regression test workbooks under `testdata/` and integration tests (#7, #9, #10)
+- MIT license, CI workflow, package metadata
+
+### Changed
+- Minimum Rust version set to **1.88** (#5)
+- RVTools download link updated to the Dell page (#8)
+- Tool positioning: general offline RVTools summariser; VSE JSON via `-o`/`-p` is legacy
+
+### Fixed
+- Security: upgraded calamine to 0.38 and refreshed transitive deps (zip, mio, anstream, etc.) (#3)
+- vPartition without a `Powerstate` column no longer hard-fails (#7)
+- `--anonymize` no longer breaks the vInfo/vPartition join (#7)
+- `-v` VM table shows the real vPartition capacity (#7)
+
+### Security
+- `cargo audit` clean after the calamine/zip upgrades (#3)
+
+[1.1.0]: https://github.com/shapedthought/rvtools2vse/releases/tag/v1.1.0

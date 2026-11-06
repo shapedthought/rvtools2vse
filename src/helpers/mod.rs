@@ -3,11 +3,11 @@ use calamine::{Data, Range};
 use crate::models::errors::MyError;
 
 pub trait ColPosition {
-    fn get_col_pos(&self, col_name: &String) -> Result<usize, MyError>;
+    fn get_col_pos(&self, col_name: &str) -> Result<usize, MyError>;
 }
 
 impl ColPosition for Range<Data> {
-    fn get_col_pos(&self, col_name: &String) -> Result<usize, MyError> {
+    fn get_col_pos(&self, col_name: &str) -> Result<usize, MyError> {
         let data_type = &self.rows().next().unwrap();
 
         let pos = data_type
@@ -17,7 +17,7 @@ impl ColPosition for Range<Data> {
         if let Some(p) = pos {
             Ok(p)
         } else {
-            Err(MyError::ColumnPosition(format!("{}", col_name.to_string())))
+            Err(MyError::ColumnPosition(col_name.to_string()))
         }
     }
 }
@@ -32,8 +32,7 @@ impl GetString for Data {
             Data::String(t) => Ok(t.to_string()),
             Data::Empty => Ok("None".to_string()),
             _ => Err(MyError::EnumToString(format!(
-                "{} - row {} - Datatype {:?}",
-                item, row, self
+                "{item} - row {row} - Datatype {self:?}"
             ))),
         }
     }
@@ -50,8 +49,7 @@ impl GetFloat for Data {
             Data::Int(t) => Ok(*t as f64),
             Data::Empty => Ok(0.0),
             _ => Err(MyError::EnumToFloat(format!(
-                "{} - row {} - Datatype {:?}",
-                item, row, self
+                "{item} - row {row} - Datatype {self:?}"
             ))),
         }
     }
@@ -74,16 +72,12 @@ pub fn is_physical_rdm_mode(raw_comp_mode: &str) -> bool {
 }
 
 pub fn is_independent_disk_mode(disk_mode: &str) -> bool {
-    let m = disk_mode
-        .to_ascii_lowercase()
-        .replace(['-', '_', ' '], "");
+    let m = disk_mode.to_ascii_lowercase().replace(['-', '_', ' '], "");
     m.contains("independent")
 }
 
 pub fn is_shared_disk_mode(sharing: &str) -> bool {
-    let s = sharing
-        .to_ascii_lowercase()
-        .replace(['-', '_', ' '], "");
+    let s = sharing.to_ascii_lowercase().replace(['-', '_', ' '], "");
     // VMware VirtualDiskSharing::sharingMultiWriter; RVTools "Sharing" / "Sharing mode"
     s.contains("multiwriter") || s == "sharingmultiwriter"
 }
