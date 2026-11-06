@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Disk exception summaries now distinguish kept from excluded disks (including overlapping physical-RDM/independent policies), count unique disk identities across VMs/files, and label sizes as **provisioned**, with attachment counts retained. Overlapping categories are explicitly non-additive; detailed exports retain every attachment/reason and their existing columns.
+- Report the actual estimated-capacity change for `--keep-independent` / `--keep-rdm` by comparing the same sizing calculation with just that flag toggled; provisioned disk sizes are no longer presented as estimate changes.
+- `vPartition capped at vDisk` capacities now report the reduction that survives the vInfo minimum, not the larger raw guest cap. Counts still identify every VM whose raw guest sum exceeds eligible disk capacity.
+- Shared-disk UUID matching ignores surrounding whitespace/case, duplicate rows on the owner count capacity once, and excluded attachments cannot claim ownership ahead of eligible attachments.
+
+### Added
+- Synthetic cross-file regression workbooks covering shared independent disks, duplicate attachments, overlapping exclusions, and caps masked by the vInfo minimum.
+
 ## [1.1.1] - 2026-11-06
 
 ### Fixed

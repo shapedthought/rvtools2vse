@@ -39,8 +39,9 @@ pub struct Vdisk {
 impl Vdisk {
     /// Stable key for shared-disk de-duplication across VMs.
     pub fn share_key(&self) -> String {
-        if !self.disk_uuid.is_empty() && self.disk_uuid != "None" {
-            format!("uuid:{}", self.disk_uuid)
+        let uuid = self.disk_uuid.trim();
+        if !uuid.is_empty() && !uuid.eq_ignore_ascii_case("none") {
+            format!("uuid:{}", uuid.to_ascii_lowercase())
         } else {
             format!("cap:{:.0}:{}", self.capacity, self.disk_label)
         }

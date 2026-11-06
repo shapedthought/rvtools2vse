@@ -79,8 +79,8 @@ pub fn run() -> Result<()> {
             keep_independent: cli.keep_independent,
         },
     );
+    disk::print_exceptions_stderr(&awareness, cli.verbose);
     let combined = awareness.combined;
-    disk::print_exceptions_stderr(&awareness.exceptions, cli.verbose);
     if let Some(path) = &cli.exceptions_file {
         let fmt = summary::resolve_format(cli.format, Some(path.as_path()));
         let rendered = disk::render_exceptions(&awareness.exceptions, fmt)?;

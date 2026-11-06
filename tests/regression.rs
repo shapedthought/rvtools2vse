@@ -145,6 +145,14 @@ fn keep_rdm_includes_physical() {
     let (cap, n) = totals(&["-r", DISKS, "--keep-rdm"]);
     assert!((cap - 4.8).abs() < 1e-6, "got {cap}");
     assert_eq!(n, 5);
+    let (ok, _, stderr) = run(&["-r", DISKS, "--keep-rdm", "-s"]);
+    assert!(ok, "{stderr}");
+    assert!(stderr.contains("2 physical RDMs kept"), "{stderr}");
+    assert!(!stderr.contains("physical RDMs excluded"), "{stderr}");
+    assert!(
+        stderr.contains("--keep-rdm: +2.75 TB estimate change"),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -322,4 +330,111 @@ fn verbose_prints_full_exception_list() {
     let (ok, _, verbose) = run(&["-r", DISKS2, "-s", "--verbose"]);
     assert!(ok);
     assert!(verbose.contains("independent_disk (independentPersistent)"));
+}
+
+const DISK_SUMMARY: &str =
+    "testdata/regression_disk_summary_a.xlsx,testdata/regression_disk_summary_b.xlsx";
+
+#[test]
+fn disk_summary_unique_provisioned_sizes_and_actual_impact_across_files() {
+    for grouping in ["--flatten", "--flatten-site"] {
+        let (excluded, n) = totals(&["-r", DISK_SUMMARY, grouping]);
+        let (kept, kept_n) = totals(&["-r", DISK_SUMMARY, grouping, "--keep-independent"]);
+        assert_eq!((excluded, n), (1.375, 4));
+        assert_eq!((kept, kept_n), (2.125, 5));
+        let (ok, _, stderr) = run(&["-r", DISK_SUMMARY, grouping, "-s"]);
+        assert!(ok, "{stderr}");
+        assert!(
+            stderr.contains("4 independent disks excluded (6 attachments; 7.75 TB provisioned)"),
+            "{stderr}"
+        );
+        assert!(
+            stderr
+                .contains("1 shared/multi-writer disk noted (3 attachments; 4.00 TB provisioned)"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("4 VMs with vPartition capped at vDisk (1.00 TB estimate reduction)"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains(&format!(
+                "--keep-independent: {:+.2} TB estimate change",
+                kept - excluded
+            )),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("--keep-rdm: +0.00 TB estimate change"),
+            "{stderr}"
+        );
+        assert!(stderr.contains("categories overlap"));
+        let (ok, _, stderr) = run(&["-r", DISK_SUMMARY, grouping, "-s", "--keep-independent"]);
+        assert!(ok, "{stderr}");
+        // The pRDM/independent disk remains excluded by the other policy.
+        assert!(
+            stderr.contains("3 independent disks kept (5 attachments; 7.00 TB provisioned)"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("1 independent disk excluded (1 attachment; 0.75 TB provisioned)"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("3 VMs with vPartition capped at vDisk (0.50 TB estimate reduction)"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("--keep-independent: +0.75 TB estimate change"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("--keep-rdm: +0.25 TB estimate change"),
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
+fn kept_rdm_summary_respects_other_exclusions_and_exports_schema() {
+    let (ok, _, stderr) = run(&["-r", DISK_SUMMARY, "-s", "--keep-rdm"]);
+    assert!(ok, "{stderr}");
+    assert!(stderr.contains("1 physical RDM excluded"), "{stderr}");
+    let (ok, _, stderr) = run(&["-r", DISK_SUMMARY, "-s", "--keep-rdm", "--keep-independent"]);
+    assert!(ok, "{stderr}");
+    assert!(stderr.contains("1 physical RDM kept"), "{stderr}");
+    assert!(
+        stderr.contains("4 independent disks kept (6 attachments; 7.75 TB provisioned)"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("independent disk excluded"));
+    assert_eq!(
+        totals(&["-r", DISK_SUMMARY, "--keep-rdm", "--keep-independent"]),
+        (2.375, 5)
+    );
+
+    let path = std::env::temp_dir().join("rvtools2vse_disk_summary_details.json");
+    let (ok, _, stderr) = run(&[
+        "-r",
+        DISK_SUMMARY,
+        "--exceptions-file",
+        path.to_str().unwrap(),
+    ]);
+    assert!(ok, "{stderr}");
+    let rows: Vec<serde_json::Value> =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        rows.iter()
+            .filter(|r| r["reason"].as_str().unwrap().starts_with("shared_disk"))
+            .count(),
+        3
+    );
+    assert!(rows.iter().all(|r| r.as_object().unwrap().len() == 5));
+    let floor = rows
+        .iter()
+        .find(|r| r["vm_name"] == "vm_floor" && r["reason"] == "vpartition_capped_at_vdisk")
+        .unwrap();
+    assert_eq!(floor["capacity_mib"], 0.0); // raw cap is masked entirely by vInfo
+    assert!(floor["action"].as_str().unwrap().contains("guest capped"));
+    std::fs::remove_file(path).unwrap();
 }

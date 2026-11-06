@@ -155,10 +155,10 @@ When a workbook has a `vDisk` tab, the tool:
 
 - Detects **physical-compatibility RDMs** (`Raw Comp. Mode` contains `physicalMode`) and **excludes** them by default. Virtual RDMs (`virtualMode`) are kept. Use `--keep-rdm` to include pRDMs.
 - Detects **independent** disks (`Disk Mode` contains `independent`, e.g. `independentPersistent` / `independentNonPersistent`) and **excludes** them by default (VMware will not snapshot them). Use `--keep-independent` to include them.
-- Detects **shared / multi-writer** disks (`Sharing` / `Sharing mode` contains `multiWriter`) and **counts each shared disk once** across VMs (by `Disk UUID` when present). The first VM (name sort) keeps the capacity; others get a dedupe exception.
+- Detects **shared / multi-writer** disks (`Sharing` / `Sharing mode` contains `multiWriter`) and **counts each shared disk once** across VMs (by `Disk UUID` when present). The first eligible VM (name sort) keeps the capacity; other attachments (including duplicate rows on the owner) get a dedupe exception. UUID matching ignores case and surrounding whitespace. The existing fallback without a UUID is the disk label plus provisioned size, so missing UUIDs can make shared-disk identity ambiguous.
 - Caps each VM's guest vPartition sum at the sum of its **eligible** vDisk capacities.
 - **Tools heuristics:** optional vInfo `Tools` column. If Tools is `toolsNotInstalled` / `toolsNotRunning`, guest vPartition data for that VM is ignored and capacity falls back to vInfo (same as having no partitions). Powered-on VMs with no vPartition rows are noted in exceptions; capacity stays on the vInfo/vDisk path.
-- Prints a **compact exceptions summary** to stderr by default (counts by reason + TB where useful). Use `--verbose` for the full per-disk list (`-v` remains `--vm-table-print`). `--exceptions-file <path>` always writes the full list; the format is taken from `--format` if set, otherwise from the file extension (`.csv` / `.json` / `.md`, else table).
+- Prints a **compact exceptions summary** to stderr by default. Disk categories distinguish **kept** from **excluded**, count unique disk identities across all input files, and show attachment counts plus **provisioned** TB. A shared independent disk appears in both categories; sizes are deduplicated within each category but **are not additive or changes to the estimate**. Use `--verbose` for the full per-disk list (`-v` remains `--vm-table-print`). `--exceptions-file <path>` always writes the full list; the format is taken from `--format` if set, otherwise from the file extension (`.csv` / `.json` / `.md`, else table).
 
 ```
 --keep-rdm
@@ -166,6 +166,12 @@ When a workbook has a `vDisk` tab, the tool:
 --exceptions-file out.csv   # CSV inferred from the extension
 --verbose                   # full exception lines on stderr
 ```
+
+The summary also compares keeping vs excluding independent disks / physical RDMs, changing only that flag and rerunning the same sizing rules. These signed **estimate changes** account for shared-disk ownership, the vInfo minimum, guest usage, Tools fallback and VMs excluded entirely. They are for the filtered VM population **before `--dc-site-map`** (which can omit or duplicate datacenters); `--flatten` / `--flatten-site` preserve them. Different flags' changes are not additive when policies overlap. Keeping one flag does not override another exclusion policy.
+
+The `vPartition capped at vDisk` count means the **raw guest sum** exceeded eligible disk capacity. Keeping disks raises that cap, so fewer VMs may need it. Its TB figure is only the **actual estimate reduction after the vInfo minimum**, which can be zero even when the raw guest cap is large. Without usable guest data, partial disk exclusions retain the existing vInfo fallback; the new impact comparison makes that limitation visible instead of claiming the provisioned size was subtracted.
+
+Exception file columns remain `vm_name,disk,reason,capacity_mib,action`. For disk reasons, `capacity_mib` is provisioned capacity **per attachment/reason**, so summing every CSV row double-counts shared/overlapping categories. For `vpartition_capped_at_vdisk`, it is the actual estimate reduction; the action retains the raw guest cap. VM fallback rows are diagnostic capacities, not claimed reductions.
 
 If `vDisk` is missing, a note goes to stderr and sizing matches releases before disk awareness (aside from Tools / no-partition exception notes when those conditions apply).
 
