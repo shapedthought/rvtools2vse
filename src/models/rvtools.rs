@@ -14,17 +14,24 @@ pub struct Vinfo {
     /// Optional vInfo `Tools` column (toolsOk / toolsNotRunning / …).
     #[serde(skip)]
     pub tools_status: Option<String>,
+    /// Per-file join identity: `<file index>#<vInfo row>`.
+    #[serde(skip)]
+    pub vm_key: String,
+    /// Identity used to tell same-named VMs apart (Instance UUID, else VM UUID).
+    #[serde(skip)]
+    pub vm_uuid: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct Vpartition {
     pub vm_name: String,
+    pub vm_key: String,
     pub capacity: f64,
 }
 
 #[derive(Debug, Clone)]
 pub struct Vdisk {
-    pub vm_name: String,
+    pub vm_key: String,
     pub capacity: f64,
     pub disk_label: String,
     pub raw_comp_mode: String,

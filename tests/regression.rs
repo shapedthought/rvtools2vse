@@ -496,3 +496,118 @@ fn readme_flag_reference_matches_long_help() {
         "README help text drifted: {block}"
     );
 }
+
+const UUID_A: &str = "testdata/regression_uuid_a.xlsx";
+const UUID_B: &str = "testdata/regression_uuid_b.xlsx";
+const NO_UUID_DUP: &str = "testdata/regression_no_uuid_dup.xlsx";
+const ANON_FILTER: &str = "testdata/regression_anon_filter.xlsx";
+
+#[test]
+fn duplicate_names_join_by_uuid_within_and_across_files() {
+    let files = format!("{UUID_A},{UUID_B}");
+    // web01 x3 (0.5 + 1.0 + 0.25) + shared disk counted once (1.0); db-b deduped to 0.
+    assert_eq!(totals(&["-r", &files]), (2.75, 5));
+    let (ok, _, stderr) = run(&["-r", &files, "-s"]);
+    assert!(ok);
+    assert!(
+        stderr.contains("3 VM records sharing a name with another VM"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("1 shared/multi-writer disk noted"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn duplicate_names_in_verbose_and_exceptions_file() {
+    let dir = std::env::temp_dir().join(format!("rvsum-dup-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("ex.csv");
+    let files = format!("{UUID_A},{UUID_B}");
+    let (ok, _, stderr) = run(&[
+        "-r",
+        &files,
+        "-s",
+        "--verbose",
+        "--exceptions-file",
+        path.to_str().unwrap(),
+    ]);
+    assert!(ok);
+    assert!(stderr.contains("duplicate_vm_name (3 records)"), "{stderr}");
+    let csv = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        csv.lines()
+            .filter(|l| l.contains("duplicate_vm_name") && l.contains("joined_separately_by_uuid"))
+            .count(),
+        3,
+        "{csv}"
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn old_export_without_uuid_columns_falls_back_to_names() {
+    // The single vPartition row attaches to the first app01 record only.
+    assert_eq!(totals(&["-r", NO_UUID_DUP]), (1.75, 3));
+    let (ok, _, stderr) = run(&["-r", NO_UUID_DUP, "-s", "--verbose"]);
+    assert!(ok);
+    assert!(
+        stderr.contains("no_uuid_joined_by_name_ambiguous"),
+        "{stderr}"
+    );
+    // Older exports without duplicates are unchanged.
+    assert_eq!(totals(&["-r", BASELINE]), (3.75, 4));
+}
+
+#[test]
+fn anonymize_applies_filters_and_site_maps_to_real_names() {
+    let args = [
+        "-r",
+        ANON_FILTER,
+        "--dc-exclude",
+        "DC-Drop",
+        "--cluster-exclude",
+        "CL-Drop",
+    ];
+    let mut anon = args.to_vec();
+    anon.push("--anonymize");
+    assert_eq!(totals(&args), (0.5, 1));
+    assert_eq!(totals(&anon), (0.5, 1));
+    assert_eq!(
+        totals(&[
+            "-r",
+            ANON_FILTER,
+            "--anonymize",
+            "--dc-include",
+            "DC-Keep",
+            "--vm-exclude",
+            "keep01"
+        ]),
+        (1.0, 1)
+    );
+    let mut csv_args = anon.clone();
+    csv_args.extend(["-s", "--format", "csv"]);
+    let (ok, stdout, _) = run(&csv_args);
+    assert!(ok);
+    assert!(
+        !stdout.contains("DC-Keep") && !stdout.contains("CL-Keep"),
+        "{stdout}"
+    );
+
+    let dir = std::env::temp_dir().join(format!("rvsum-anon-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let map = dir.join("map.json");
+    std::fs::write(&map, r#"[{"group_name":"Site1","dc_names":["DC-Keep"]}]"#).unwrap();
+    assert_eq!(
+        totals(&[
+            "-r",
+            ANON_FILTER,
+            "--anonymize",
+            "--dc-site-map",
+            map.to_str().unwrap()
+        ]),
+        (1.5, 2)
+    );
+    std::fs::remove_dir_all(dir).ok();
+}

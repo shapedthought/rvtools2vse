@@ -173,6 +173,80 @@ def build_disk_summary(path, second_file=False):
     wb.save(path)
 
 
+def build_uuid_join(path, second_file=False):
+    """Duplicate VM names across vCenters/files, joined by UUID.
+    File A: web01 (DC-A, inst i-1) guest 0.5, web01 (DC-B, inst i-2) guest 1.0,
+            db-a with multi-writer disk SHARED-X (guest 1.0).
+    File B: web01 (DC-C, inst i-3) guest 0.25 — child sheets carry only VM UUID,
+            db-b sharing SHARED-X (deduped to 0).
+    Expected A+B: 2.75 TiB / 5 VMs. Joining by name would give a different total.
+    """
+    wb = Workbook()
+    info = wb.active
+    info.title = "vInfo"
+    info.append(["VM", "Powerstate", "Datacenter", "Cluster", "In Use MiB", "VM UUID", "VM Instance UUID"])
+    part = wb.create_sheet("vPartition")
+    disk = wb.create_sheet("vDisk")
+    if second_file:
+        part.append(["VM", "Powerstate", "Consumed MiB", "VM UUID"])
+        disk.append(["VM", "Powerstate", "Disk", "Capacity MiB", "Sharing", "Disk UUID", "VM UUID"])
+        vms = [("web01", "DC-C", T, "b-3", "i-3"), ("db-b", "DC-C", T, "b-db-b", "i-db-b")]
+        parts = [("web01", T // 4, "b-3"), ("db-b", T, "b-db-b")]
+        disks = [("web01", "boot", T, "", "W3", "b-3"), ("db-b", "shared", T, "sharingMultiWriter", "SHARED-X", "b-db-b")]
+        for r in vms:
+            info.append([r[0], "poweredOn", r[1], "CL", r[2], r[3], r[4]])
+        for vm, cap, u in parts:
+            part.append([vm, "poweredOn", cap, u])
+        for vm, label, cap, sharing, duuid, u in disks:
+            disk.append([vm, "poweredOn", label, cap, sharing, duuid, u])
+    else:
+        part.append(["VM", "Powerstate", "Consumed MiB", "VM UUID", "VM Instance UUID"])
+        disk.append(["VM", "Powerstate", "Disk", "Capacity MiB", "Sharing", "Disk UUID", "VM UUID", "VM Instance UUID"])
+        vms = [("web01", "DC-A", T, "b-1", "i-1"), ("web01", "DC-B", 2 * T, "b-2", "i-2"),
+               ("db-a", "DC-A", T, "b-db-a", "i-db-a")]
+        parts = [("web01", T // 2, "b-1", "i-1"), ("web01", T, "b-2", "i-2"), ("db-a", T, "b-db-a", "i-db-a")]
+        disks = [("web01", "boot", T, "", "W1", "b-1", "i-1"), ("web01", "boot", 2 * T, "", "W2", "b-2", "i-2"),
+                 ("db-a", "shared", T, "sharingMultiWriter", "SHARED-X", "b-db-a", "i-db-a")]
+        for r in vms:
+            info.append([r[0], "poweredOn", r[1], "CL", r[2], r[3], r[4]])
+        for vm, cap, b, i in parts:
+            part.append([vm, "poweredOn", cap, b, i])
+        for vm, label, cap, sharing, duuid, b, i in disks:
+            disk.append([vm, "poweredOn", label, cap, sharing, duuid, b, i])
+    wb.save(path)
+
+
+def build_no_uuid_duplicate(path):
+    """Old export without UUID columns and a duplicated name: app01 x2 (1 TiB each),
+    one vPartition row 0.5 attaches to the first record only; solo 0.25.
+    Expected 1.75 TiB / 3 VMs (joining by name to both records gave 1.25)."""
+    wb = Workbook()
+    info = wb.active
+    info.title = "vInfo"
+    info.append(["VM", "Powerstate", "Datacenter", "Cluster", "In Use MiB"])
+    info.append(["app01", "poweredOn", "DC-A", "CL", T])
+    info.append(["app01", "poweredOn", "DC-B", "CL", T])
+    info.append(["solo", "poweredOn", "DC-A", "CL", T])
+    part = wb.create_sheet("vPartition")
+    part.append(["VM", "Powerstate", "Consumed MiB"])
+    part.append(["app01", "poweredOn", T // 2])
+    part.append(["solo", "poweredOn", T // 4])
+    wb.save(path)
+
+
+def build_anon_filter(path):
+    """Filters and site maps must match real names under --anonymize.
+    DC-Keep/CL-Keep: keep01 0.5; DC-Keep/CL-Drop: drop01 1.0; DC-Drop: other01 2.0."""
+    wb = Workbook()
+    info = wb.active
+    info.title = "vInfo"
+    info.append(["VM", "Powerstate", "Datacenter", "Cluster", "In Use MiB", "VM UUID"])
+    info.append(["keep01", "poweredOn", "DC-Keep", "CL-Keep", T // 2, "u-1"])
+    info.append(["drop01", "poweredOn", "DC-Keep", "CL-Drop", T, "u-2"])
+    info.append(["other01", "poweredOn", "DC-Drop", "CL-X", 2 * T, "u-3"])
+    wb.save(path)
+
+
 here = Path(__file__).parent
 build_baseline(here / "regression_baseline.xlsx")
 build_baseline(here / "regression_no_part_powerstate.xlsx", part_powerstate=False)
@@ -180,4 +254,8 @@ build_disks(here / "regression_disks.xlsx")
 build_disks2(here / "regression_disks2.xlsx")
 build_disk_summary(here / "regression_disk_summary_a.xlsx")
 build_disk_summary(here / "regression_disk_summary_b.xlsx", second_file=True)
-print("wrote baseline, no_part_powerstate, disks, disks2, disk_summary_a, disk_summary_b")
+build_uuid_join(here / "regression_uuid_a.xlsx")
+build_uuid_join(here / "regression_uuid_b.xlsx", second_file=True)
+build_no_uuid_duplicate(here / "regression_no_uuid_dup.xlsx")
+build_anon_filter(here / "regression_anon_filter.xlsx")
+print("wrote uuid_a, uuid_b, no_uuid_dup, anon_filter, baseline, no_part_powerstate, disks, disks2, disk_summary_a, disk_summary_b")

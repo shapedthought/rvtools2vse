@@ -53,6 +53,9 @@ pub fn apply(
     opts: Options,
 ) -> DiskAwarenessResult {
     let mut result = apply_inner(info_vec, grouped, disk_vec, opts);
+    result
+        .exceptions
+        .extend(duplicate_name_exceptions(info_vec));
     let current_total: f64 = result.combined.iter().map(|v| v.capacity).sum();
     // Counterfactual estimates use exactly the same sizing path (including guest,
     // vInfo, Tools and shared-disk rules), changing only one option at a time.
@@ -91,13 +94,57 @@ pub fn apply(
     result
 }
 
+/// One exception per vInfo record whose VM name appears more than once.
+/// With UUIDs the records are joined separately; without them the join is
+/// ambiguous and child rows attach to the first record of that name in the file.
+pub fn duplicate_name_exceptions(info_vec: &[Vinfo]) -> Vec<Exception> {
+    let mut by_name: BTreeMap<&str, Vec<&Vinfo>> = BTreeMap::new();
+    for v in info_vec {
+        by_name.entry(v.vm_name.as_str()).or_default().push(v);
+    }
+    let mut out = Vec::new();
+    for (name, vms) in by_name {
+        if vms.len() < 2 {
+            continue;
+        }
+        for v in &vms {
+            let same_uuid = !v.vm_uuid.is_empty()
+                && vms
+                    .iter()
+                    .filter(|o| o.vm_uuid.eq_ignore_ascii_case(&v.vm_uuid))
+                    .count()
+                    > 1;
+            let action = if v.vm_uuid.is_empty() {
+                "no_uuid_joined_by_name_ambiguous"
+            } else if same_uuid {
+                "same_uuid_in_multiple_records_check_overlapping_exports"
+            } else {
+                "joined_separately_by_uuid"
+            };
+            out.push(Exception {
+                vm_name: name.to_string(),
+                disk: if v.vm_uuid.is_empty() {
+                    "*".into()
+                } else {
+                    format!("uuid:{}", v.vm_uuid)
+                },
+                reason: format!("duplicate_vm_name ({} records)", vms.len()),
+                capacity_mib: v.capacity,
+                action: action.into(),
+                disk_key: None,
+            });
+        }
+    }
+    out
+}
+
 fn summary_disk_key(d: &Vdisk) -> String {
     let key = d.share_key();
     if d.is_shared || key.starts_with("uuid:") {
         key
     } else {
         // Ordinary disks without UUIDs are not shared just because their labels match.
-        format!("vm:{}:{key}", d.vm_name)
+        format!("vm:{}:{key}", d.vm_key)
     }
 }
 
@@ -109,26 +156,27 @@ fn apply_inner(
 ) -> DiskAwarenessResult {
     let mut group_map = HashMap::new();
     for (i, j) in grouped.iter().enumerate() {
-        group_map.insert(j.vm_name.as_str(), i);
+        group_map.insert(j.vm_key.as_str(), i);
     }
 
     let mut disks_by_vm: HashMap<&str, Vec<&Vdisk>> = HashMap::new();
     for d in disk_vec {
-        disks_by_vm.entry(d.vm_name.as_str()).or_default().push(d);
+        disks_by_vm.entry(d.vm_key.as_str()).or_default().push(d);
     }
 
     // Claim shared disks in stable VM-name order so capacity is counted once.
     let mut vm_order: Vec<&Vinfo> = info_vec.iter().collect();
-    vm_order.sort_by(|a, b| a.vm_name.cmp(&b.vm_name));
+    vm_order.sort_by(|a, b| (&a.vm_name, &a.vm_key).cmp(&(&b.vm_name, &b.vm_key)));
 
-    let mut shared_owner: HashMap<String, String> = HashMap::new();
+    // Owner = (vm_key, vm_name); the key keeps same-named VMs apart.
+    let mut shared_owner: HashMap<String, (String, String)> = HashMap::new();
     for info in &vm_order {
-        if let Some(disks) = disks_by_vm.get(info.vm_name.as_str()) {
+        if let Some(disks) = disks_by_vm.get(info.vm_key.as_str()) {
             for d in disks {
                 if d.is_shared && !is_excluded(d, opts) {
                     shared_owner
                         .entry(d.share_key())
-                        .or_insert_with(|| info.vm_name.clone());
+                        .or_insert_with(|| (info.vm_key.clone(), info.vm_name.clone()));
                 }
             }
         }
@@ -140,7 +188,7 @@ fn apply_inner(
 
     for info in info_vec {
         let disks = disks_by_vm
-            .get(info.vm_name.as_str())
+            .get(info.vm_key.as_str())
             .cloned()
             .unwrap_or_default();
         let has_disks = !disks.is_empty();
@@ -187,8 +235,11 @@ fn apply_inner(
 
             if d.is_shared {
                 let key = d.share_key();
-                let owner = shared_owner.get(&key).map(String::as_str).unwrap_or("");
-                if counts && owner == info.vm_name && counted_shared.insert(key) {
+                let (owner_key, owner) = shared_owner
+                    .get(&key)
+                    .map(|(k, n)| (k.as_str(), n.as_str()))
+                    .unwrap_or(("", ""));
+                if counts && owner_key == info.vm_key && counted_shared.insert(key) {
                     exceptions.push(Exception {
                         vm_name: info.vm_name.clone(),
                         disk: d.disk_label.clone(),
@@ -255,7 +306,7 @@ fn apply_inner(
         }
 
         let elig = if has_disks { Some(eligible) } else { None };
-        let has_part = group_map.contains_key(info.vm_name.as_str());
+        let has_part = group_map.contains_key(info.vm_key.as_str());
         let tools_bad = tools_unreliable(info.tools_status.as_deref());
         let powered_on = info.powerstate.to_ascii_lowercase().contains("poweredon");
 
@@ -282,7 +333,7 @@ fn apply_inner(
                     "tools_unreliable ({})",
                     info.tools_status.as_deref().unwrap_or("")
                 ),
-                capacity_mib: grouped[group_map[info.vm_name.as_str()]].capacity,
+                capacity_mib: grouped[group_map[info.vm_key.as_str()]].capacity,
                 disk_key: None,
                 action: "ignored_vpartition_using_vinfo_vdisk".into(),
             });
@@ -297,7 +348,7 @@ fn apply_inner(
             continue;
         }
 
-        let mut guest = grouped[group_map[info.vm_name.as_str()]].capacity;
+        let mut guest = grouped[group_map[info.vm_key.as_str()]].capacity;
         let raw_guest = guest;
         if let Some(cap) = elig {
             if guest > cap {
@@ -323,6 +374,8 @@ fn apply_inner(
             powerstate: info.powerstate.clone(),
             vpartition_capacity: Some(raw_guest),
             tools_status: info.tools_status.clone(),
+            vm_key: info.vm_key.clone(),
+            vm_uuid: info.vm_uuid.clone(),
         });
     }
 
@@ -407,6 +460,8 @@ pub fn reason_bucket(reason: &str) -> &'static str {
         "tools_unreliable"
     } else if r.starts_with("no_vpartition") {
         "no_vpartition"
+    } else if r.starts_with("duplicate_vm_name") {
+        "duplicate_vm_name"
     } else if r.starts_with("no_vadp_eligible") || r.starts_with("all_disks_physical") {
         "no_vadp_eligible"
     } else {
@@ -463,6 +518,13 @@ fn bucket_label(bucket: &str, count: usize) -> String {
                 "VM with no VADP-eligible disks"
             } else {
                 "VMs with no VADP-eligible disks"
+            }
+        }
+        "duplicate_vm_name" => {
+            if count == 1 {
+                "VM record sharing its name with another VM"
+            } else {
+                "VM records sharing a name with another VM"
             }
         }
         _ => {
@@ -595,6 +657,8 @@ mod tests {
             powerstate: "poweredOn".into(),
             vpartition_capacity: None,
             tools_status: None,
+            vm_key: name.into(),
+            vm_uuid: String::new(),
         }
     }
 
@@ -607,13 +671,14 @@ mod tests {
     fn part(name: &str, cap: f64) -> Vpartition {
         Vpartition {
             vm_name: name.into(),
+            vm_key: name.into(),
             capacity: cap,
         }
     }
 
     fn disk_base(name: &str, cap: f64, label: &str) -> Vdisk {
         Vdisk {
-            vm_name: name.into(),
+            vm_key: name.into(),
             capacity: cap,
             disk_label: label.into(),
             raw_comp_mode: String::new(),
@@ -738,7 +803,7 @@ mod tests {
         a.is_independent = true;
         a.disk_uuid = "SHARED".into();
         let mut b = a.clone();
-        b.vm_name = "b".into();
+        b.vm_key = "b".into();
         b.is_independent = false;
         let r = apply(&infos, &parts, &[a, b], opts(false, false));
         assert_eq!(r.combined.len(), 1);

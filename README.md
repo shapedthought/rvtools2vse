@@ -132,6 +132,24 @@ The vDisk term is omitted when that VM has no disk rows. With `-d/--do-not-use-v
 
 The report's `TB` is **binary** (MiB / 1,048,576, i.e. TiB); average `GB` is also binary (GiB). Values in tables/CSV/Markdown are rounded to two decimals. JSON summary capacities are unrounded.
 
+### How VMs are matched across tabs
+
+vPartition and vDisk rows are joined to a vInfo record **within the same input file**, never across files, using the first identity available:
+
+1. **VM Instance UUID** (`VM Instance UUID` / `Instance UUID` column), then
+2. **VM UUID** (`VM UUID` / `SMBIOS UUID` / `BIOS UUID` column), then
+3. **VM name**, for older exports without UUID columns or with blank values.
+
+Column names are matched case-insensitively and each tab is checked independently, so a vInfo tab with both UUIDs still joins a vDisk tab that only has `VM UUID`. A child row whose UUID is not in that file's vInfo (for example a filtered-out VM) is ignored instead of being attached to another VM with the same name. Shared-disk deduplication still uses `Disk UUID` across **all** files, so one multi-writer disk seen from two vCenter exports is counted once.
+
+When the same VM name appears on more than one vInfo record, each record is reported as a `duplicate_vm_name` exception:
+
+| Action | Meaning |
+| --- | --- |
+| `joined_separately_by_uuid` | Different VMs that happen to share a name (common across vCenters); each is sized from its own rows. |
+| `same_uuid_in_multiple_records_check_overlapping_exports` | The same VM appears in several files, e.g. overlapping exports; it is counted once per record, so remove the duplicate export. |
+| `no_uuid_joined_by_name_ambiguous` | No UUID is available; partition/disk rows attach to the first record with that name in the file. |
+
 ### Disk policy and VMware Tools
 
 | Condition | Default behaviour | Override / caveat |
@@ -208,7 +226,7 @@ rvsum -D ./exports --dc-include "Dubai DC",AbuDhabi --cluster-exclude Lab --vm-e
 rvsum -D ./exports --dc-print
 ```
 
-Includes narrow the population first; excludes then remove matches. See the [anonymization limitation](#known-limitations) before combining filters with `--anonymize`.
+Includes narrow the population first; excludes then remove matches. Filters and site maps always use the **real** names from the workbook, also with `--anonymize`; hashing happens afterwards, only on the reported datacenter, cluster and VM names (site-map group names and the `--flatten` labels are not hashed).
 
 ### Flatten and flatten-site
 
@@ -409,8 +427,8 @@ The old Veeam Size Estimator (VSE) is defunct, but its export remains available 
 
 ## Known limitations
 
-- **Anonymization + filters:** names are hashed **before** include/exclude filters and site mapping. Filters/map entries using real names therefore do not match under `--anonymize`. It hashes datacenter, cluster and VM names, not every workbook/exception field; do not treat it as a complete data-sanitization or security feature.
-- **Cross-file identity:** VM joins use VM names, not a vCenter-qualified ID. Avoid overlapping snapshots of the same inventory and name collisions across input files. Duplicate *paths* are removed, not duplicate inventory records.
+- **Anonymization scope:** `--anonymize` hashes datacenter, cluster and VM names in the output, not every workbook/exception field (for example disk labels); do not treat it as a complete data-sanitization or security feature.
+- **Overlapping exports:** the same VM in two input files is counted twice. It is flagged as `duplicate_vm_name` with `same_uuid_in_multiple_records_check_overlapping_exports` when UUIDs are present. Duplicate *paths* are removed, not duplicate inventory records. Exports without UUID columns join by name, which is ambiguous when names repeat.
 - **Guest data quality:** missing/stale Tools or vPartition rows can make the vInfo fallback overestimate guest data. Missing vDisk metadata can prevent exclusions/deduplication. Partial exclusions and shared disks cannot be allocated precisely without usable guest data.
 - **Shared disks without UUIDs:** the disk-label-plus-size fallback is ambiguous and can merge unrelated disks. Shared allocation is deterministic by VM name, not by actual ownership or guest usage.
 - **Backup coverage:** controller-level SCSI `SharedBus` is not read. In-guest iSCSI/raw volumes appearing only in vPartition are not specially classified. The dedicated `vTools` sheet is not read; only vInfo `Tools` is used. Keeping an RDM/independent disk in the estimate does not make it VADP-backupable.
