@@ -6,7 +6,16 @@ It reads the `vInfo` (and, if present, `vPartition`) tabs from one or more RVToo
 
 > **Legacy VSE output.** The tool was originally written to convert RVTools data into the Veeam Size Estimator (VSE) format. VSE is now defunct. The VSE JSON output is still available via `-o/--output-file` and `-p/--print` but is no longer the main purpose of the tool.
 
+## Releases
+
+Tagged releases (`v*`) build multi-platform binaries and a multi-arch container image (`ghcr.io/shapedthought/rvtools2vse`). See [CHANGELOG.md](CHANGELOG.md) and the Actions “Release” workflow.
+
+```
+podman pull ghcr.io/shapedthought/rvtools2vse:latest
+```
+
 ## Building from source
+
 
 Requires Rust **1.88 or newer** (`rust-version` in `Cargo.toml`).
 
