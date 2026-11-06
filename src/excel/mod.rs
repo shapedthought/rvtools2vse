@@ -158,14 +158,17 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
         };
 
         if let Some(partition) = partition {
-            if partition.is_err() || cli.do_not_use_vpartition {
-                if !cli.do_not_use_vpartition {
-                    Err(MyError::VpartitionError(
-                        "vPartition sheet not found".to_string(),
-                    ))?;
-                }
+            if cli.do_not_use_vpartition {
+                // skip reading partitions
             } else {
-                let partition = partition.unwrap();
+                let partition = match partition {
+                    Ok(range) => range,
+                    Err(_) => {
+                        return Err(MyError::VpartitionError(
+                            "vPartition sheet not found".to_string(),
+                        ));
+                    }
+                };
 
                 let part_vm_column = partition.get_col_pos("VM")?;
 
