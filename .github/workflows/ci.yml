@@ -34,14 +34,16 @@ jobs:
           shared-key: ${{ matrix.toolchain }}
 
       - name: cargo fmt
-        if: matrix.toolchain == 'stable'
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: cargo test
-        run: cargo test --all-targets
+        run: cargo test --locked --all-targets
+
+      - name: rvsum binary smoke test
+        run: cargo run --locked --bin rvsum -- --version
 
   audit:
     name: cargo audit
