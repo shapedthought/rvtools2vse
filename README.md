@@ -281,6 +281,25 @@ podman run --rm -v "$PWD:/data" -w /data rvsum:dev -D . -s
 
 The multi-stage `Containerfile` uses `rust:1-bookworm` and `debian:bookworm-slim`, keeping build/runtime glibc aligned. The default command is `--help`.
 
+## Parsed workbook cache
+
+The first run saves the parsed columns used from **vInfo, vPartition and vDisk**, including both VM UUIDs, to a compact binary sidecar: `exports/.inventory.xlsx.rvsum-cache`. Subsequent runs load these rows instead of reopening the xlsx. Every row is cached, including powered-off VMs; VM selection, disk policies, UUID joins, site maps and anonymization still run afresh, so changing flags does not require a refresh.
+
+- A cache is rebuilt when the input's canonical path, size or modification time (including subsecond precision), the cache schema, or the rvsum version changes. Corrupt caches are silently rebuilt. This uses **size + mtime**, not a full source-content hash: if another program changes the content while preserving both, use `--refresh-cache`.
+- If the source directory is not writable (for example, a read-only container mount), rvsum saves under the OS cache directory instead: `$XDG_CACHE_HOME/rvsum` or `~/.cache/rvsum` on Linux, with native cache locations on macOS/Windows. The filename is a hash of the canonical source path. If neither location is writable, the run still succeeds without saving a cache.
+- `--no-cache` bypasses **both reads and writes**; `--refresh-cache` rebuilds it. These flags cannot be combined. No cache messages are printed by default; `--verbose` reports hits, misses, refreshes and bypasses (as well as full exceptions).
+- Caches contain **real inventory names and UUIDs even with `--anonymize`**. Files are owner-only (`0600`) on Unix, not encrypted. Treat them like the source export. Use `--no-cache` when no extra inventory copy should be written; this does not delete existing caches. They can be removed manually at any time. Unusual unsupported cell types disable saving for that workbook rather than changing validation behaviour.
+
+```bash
+rvsum -D ./exports -s                  # Populate/reuse caches automatically
+rvsum -D ./exports -s --refresh-cache  # Force a fresh parse
+rvsum -D ./exports -s --no-cache       # Do not read or write caches
+```
+
+For read-only container inputs, the image's writable home directory provides the fallback. To retain it between disposable containers, mount an appuser-writable cache volume at `/home/appuser/.cache`, or mount a writable directory and set `XDG_CACHE_HOME` to it. A fully read-only container needs such a writable cache mount to save caches.
+
+**Timing:** on the largest checked-in fixture, `sample_rvtools.xlsx` (6,868 bytes), 200 alternating release-binary runs had median whole-command times of **1.04 ms cached vs 1.33 ms with `--no-cache`** (about **1.3×**); forced refresh was 1.46 ms. This fixture is tiny, so process startup dominates; real-estate gains depend on workbook size and storage. These are warm-filesystem timings, not cold disk benchmarks. Only xlsx parsing is skipped: sizing and output are still recalculated.
+
 ## Full flag reference
 
 Usage: `rvsum [OPTIONS]`. The following entries reproduce **`rvsum --help` exactly**, grouped by task rather than declaration order. Regression tests check that every flag and its help text stays in sync. `rvsum -h` gives the shorter help form.
@@ -300,6 +319,12 @@ Usage: `rvsum [OPTIONS]`. The following entries reproduce **`rvsum --help` exact
 
       --legacy
           Legacy mode - pre v4.1.2
+
+      --no-cache
+          Bypass reading and writing the parsed workbook cache
+
+      --refresh-cache
+          Rebuild the parsed workbook cache instead of reusing it
 ```
 
 ### VM selection
@@ -375,7 +400,7 @@ Usage: `rvsum [OPTIONS]`. The following entries reproduce **`rvsum --help` exact
           Write disk-awareness exceptions to a file (format from --format or file extension)
 
       --verbose
-          Print the full disk-awareness exceptions list to stderr (default is a compact summary). Note: short `-v` is already `--vm-table-print`
+          Print the full disk-awareness exceptions list to stderr (default is a compact summary). Also report parsed workbook cache activity. Note: short `-v` is already `--vm-table-print`
 
   -v, --vm-table-print
           Print VM table
