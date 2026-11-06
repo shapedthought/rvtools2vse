@@ -77,8 +77,11 @@ pub fn run() -> Result<()> {
         &info_vec,
         &grouped,
         &disk_vec,
-        !cli.do_not_use_vpartition,
-        cli.keep_rdm,
+        disk::Options {
+            use_vpartition: !cli.do_not_use_vpartition,
+            keep_rdm: cli.keep_rdm,
+            keep_independent: cli.keep_independent,
+        },
     );
     let combined = awareness.combined;
     disk::print_exceptions_stderr(&awareness.exceptions);

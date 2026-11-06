@@ -5,21 +5,19 @@
 
 Capacities are in MiB (1 TiB = 1048576 MiB).
 
-Baseline (no vDisk tab) — powered-on only:
-  vm1  DC-A/CL1  vInfo 1 TiB,   vPartition 0.25+0.25 TiB -> 0.5 TiB
-  vm2  DC-A/CL1  vInfo 0.5 TiB, vPartition 1 TiB         -> 0.5 TiB
-  vm3  DC-A/CL2  vInfo 2 TiB,   no vPartition rows       -> 2.0 TiB
-  vm4  DC-B/CL3  vInfo 1 TiB,   vPartition 0.75 TiB      -> 0.75 TiB
-  vm5  DC-B/CL3  poweredOff, vInfo 1 TiB, vPartition 0.5 TiB (only with -i)
-Total 3.75 TB / 4 VMs (4.25 TB / 5 VMs with -i; 4.5 TB with -d).
+Baseline (no vDisk): see prior docs — 3.75 TB / 4 VMs powered-on.
 
-Disk-awareness workbook (regression_disks.xlsx):
-  vm_vmdk   — one thin VMDK 1 TiB, guest 0.5 TiB -> 0.5 (unchanged by disk awareness)
-  vm_prdm   — VMDK 0.25 TiB + pRDM 2 TiB; guest 2.0 TiB; vInfo 2.25
-              default: eligible 0.25, cap guest -> 0.25; --keep-rdm: min(2.25, 2.0)=2.0
-  vm_vrdm   — virtualMode RDM 1 TiB, guest 0.8, vInfo 1.0 -> 0.8 (kept)
-  vm_cap    — VMDK 0.5 TiB, guest 2.0 (inflated), vInfo 2.0 -> capped to 0.5
-  vm_only_p — only physical RDM 1 TiB; excluded by default; with --keep-rdm: min(1,1)=1
+regression_disks.xlsx (phase 1):
+  vm_vmdk 0.5, vm_prdm 0.25 (pRDM excluded), vm_vrdm 0.8, vm_cap 0.5, vm_only_p excluded
+  → 2.05 TB / 4 VMs; --keep-rdm → 4.8 TB / 5 VMs
+
+regression_disks2.xlsx (phase 2):
+  vm_ind   — VMDK 0.5 + independentPersistent 1.0; guest 1.2; vInfo 1.5
+             default eligible 0.5 → 0.5; --keep-independent → min(1.5,1.2)=1.2
+  vm_share_a / vm_share_b — shared multi-writer UUID disk 1.0 TiB each side; guest 1.0
+             counted once → total 1.0 across both VMs
+  vm_tools — toolsNotRunning, guest 0.1, vInfo 2.0, VMDK 2.0 → ignore guest → 2.0
+  vm_nopart — poweredOn, toolsOk, VMDK 0.5, no vPartition → 0.5 + exception
 """
 from pathlib import Path
 from openpyxl import Workbook
@@ -65,16 +63,14 @@ def build_disks(path):
     info = wb.active
     info.title = "vInfo"
     info.append(["VM", "Powerstate", "Datacenter", "Cluster", "In Use MiB"])
-    rows = [
+    for r in [
         ("vm_vmdk", "poweredOn", "DC-D", "CL1", T),
         ("vm_prdm", "poweredOn", "DC-D", "CL1", 9 * T / 4),
         ("vm_vrdm", "poweredOn", "DC-D", "CL2", T),
         ("vm_cap", "poweredOn", "DC-D", "CL2", 2 * T),
         ("vm_only_p", "poweredOn", "DC-D", "CL3", T),
-    ]
-    for r in rows:
+    ]:
         info.append(list(r))
-
     part = wb.create_sheet("vPartition")
     part.append(["VM", "Powerstate", "Consumed MiB"])
     for r in [
@@ -85,18 +81,52 @@ def build_disks(path):
         ("vm_only_p", "poweredOn", T),
     ]:
         part.append(list(r))
-
     disk = wb.create_sheet("vDisk")
-    disk.append(
-        ["VM", "Powerstate", "Disk", "Capacity MiB", "Raw", "Raw Comp. Mode"]
-    )
+    disk.append(["VM", "Powerstate", "Disk", "Capacity MiB", "Raw", "Raw Comp. Mode", "Disk Mode", "Sharing", "Disk UUID"])
     for r in [
-        ("vm_vmdk", "poweredOn", "Hard disk 1", T, False, ""),
-        ("vm_prdm", "poweredOn", "Hard disk 1", T // 4, False, ""),
-        ("vm_prdm", "poweredOn", "Hard disk 2", 2 * T, True, "physicalMode"),
-        ("vm_vrdm", "poweredOn", "Hard disk 1", T, True, "virtualMode"),
-        ("vm_cap", "poweredOn", "Hard disk 1", T // 2, False, ""),
-        ("vm_only_p", "poweredOn", "Hard disk 1", T, True, "physicalMode"),
+        ("vm_vmdk", "poweredOn", "Hard disk 1", T, False, "", "persistent", "", ""),
+        ("vm_prdm", "poweredOn", "Hard disk 1", T // 4, False, "", "persistent", "", ""),
+        ("vm_prdm", "poweredOn", "Hard disk 2", 2 * T, True, "physicalMode", "persistent", "", ""),
+        ("vm_vrdm", "poweredOn", "Hard disk 1", T, True, "virtualMode", "persistent", "", ""),
+        ("vm_cap", "poweredOn", "Hard disk 1", T // 2, False, "", "persistent", "", ""),
+        ("vm_only_p", "poweredOn", "Hard disk 1", T, True, "physicalMode", "persistent", "", ""),
+    ]:
+        disk.append(list(r))
+    wb.save(path)
+
+
+def build_disks2(path):
+    wb = Workbook()
+    info = wb.active
+    info.title = "vInfo"
+    info.append(["VM", "Powerstate", "Datacenter", "Cluster", "In Use MiB", "Tools"])
+    for r in [
+        ("vm_ind", "poweredOn", "DC-E", "CL1", 1.5 * T, "toolsOk"),
+        ("vm_share_a", "poweredOn", "DC-E", "CL2", T, "toolsOk"),
+        ("vm_share_b", "poweredOn", "DC-E", "CL2", T, "toolsOk"),
+        ("vm_tools", "poweredOn", "DC-E", "CL3", 2 * T, "toolsNotRunning"),
+        ("vm_nopart", "poweredOn", "DC-E", "CL3", T // 2, "toolsOk"),
+    ]:
+        info.append(list(r))
+    part = wb.create_sheet("vPartition")
+    part.append(["VM", "Powerstate", "Consumed MiB"])
+    for r in [
+        ("vm_ind", "poweredOn", 1.2 * T),
+        ("vm_share_a", "poweredOn", T),
+        ("vm_share_b", "poweredOn", T),
+        ("vm_tools", "poweredOn", 0.1 * T),
+        # vm_nopart: intentionally no rows
+    ]:
+        part.append(list(r))
+    disk = wb.create_sheet("vDisk")
+    disk.append(["VM", "Powerstate", "Disk", "Capacity MiB", "Raw", "Raw Comp. Mode", "Disk Mode", "Sharing", "Disk UUID"])
+    for r in [
+        ("vm_ind", "poweredOn", "Hard disk 1", T // 2, False, "", "persistent", "", "U-IND-1"),
+        ("vm_ind", "poweredOn", "Hard disk 2", T, False, "", "independentPersistent", "", "U-IND-2"),
+        ("vm_share_a", "poweredOn", "Hard disk 1", T, False, "", "persistent", "sharingMultiWriter", "U-SHARE-1"),
+        ("vm_share_b", "poweredOn", "Hard disk 1", T, False, "", "persistent", "sharingMultiWriter", "U-SHARE-1"),
+        ("vm_tools", "poweredOn", "Hard disk 1", 2 * T, False, "", "persistent", "", "U-TOOLS"),
+        ("vm_nopart", "poweredOn", "Hard disk 1", T // 2, False, "", "persistent", "", "U-NOPART"),
     ]:
         disk.append(list(r))
     wb.save(path)
@@ -106,4 +136,5 @@ here = Path(__file__).parent
 build_baseline(here / "regression_baseline.xlsx")
 build_baseline(here / "regression_no_part_powerstate.xlsx", part_powerstate=False)
 build_disks(here / "regression_disks.xlsx")
-print("wrote baseline, no_part_powerstate, disks")
+build_disks2(here / "regression_disks2.xlsx")
+print("wrote baseline, no_part_powerstate, disks, disks2")

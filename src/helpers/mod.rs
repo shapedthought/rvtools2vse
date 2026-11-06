@@ -72,3 +72,24 @@ pub fn as_display_string(cell: &Data) -> String {
 pub fn is_physical_rdm_mode(raw_comp_mode: &str) -> bool {
     raw_comp_mode.to_ascii_lowercase().contains("physicalmode")
 }
+
+pub fn is_independent_disk_mode(disk_mode: &str) -> bool {
+    let m = disk_mode
+        .to_ascii_lowercase()
+        .replace(['-', '_', ' '], "");
+    m.contains("independent")
+}
+
+pub fn is_shared_disk_mode(sharing: &str) -> bool {
+    let s = sharing
+        .to_ascii_lowercase()
+        .replace(['-', '_', ' '], "");
+    // VMware VirtualDiskSharing::sharingMultiWriter; RVTools "Sharing" / "Sharing mode"
+    s.contains("multiwriter") || s == "sharingmultiwriter"
+}
+
+pub fn tools_unreliable(tools: Option<&str>) -> bool {
+    tools
+        .map(|t| t.to_ascii_lowercase())
+        .is_some_and(|t| t.contains("toolsnotinstalled") || t.contains("toolsnotrunning"))
+}
