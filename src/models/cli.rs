@@ -115,6 +115,10 @@ pub struct Cli {
     #[clap(long, action, default_value_t = false)]
     pub keep_rdm: bool,
 
+    /// Keep independent-mode disk capacity in the estimate (excluded by default)
+    #[clap(long, action, default_value_t = false)]
+    pub keep_independent: bool,
+
     /// Write disk-awareness exceptions to a file (uses --format)
     #[clap(long, value_parser)]
     pub exceptions_file: Option<PathBuf>,

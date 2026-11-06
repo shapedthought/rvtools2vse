@@ -1,10 +1,11 @@
-//! Disk awareness: physical RDMs, vPartition capping, and exceptions reporting.
+//! Disk awareness: non-VADP disks, shared-disk de-dupe, Tools heuristics, exceptions.
 
 use std::collections::HashMap;
 
 use anyhow::Result;
 use serde::Serialize;
 
+use crate::helpers::tools_unreliable;
 use crate::models::rvtools::{Vdisk, Vinfo, Vpartition};
 use crate::summary::SummaryFormat;
 
@@ -23,25 +24,23 @@ pub struct DiskAwarenessResult {
     pub exceptions: Vec<Exception>,
 }
 
-/// Per-VM eligible (VADP-backupable) disk capacity in MiB, when vDisk rows exist.
-fn eligible_mib(disks: &[&Vdisk], keep_rdm: bool) -> f64 {
-    disks
-        .iter()
-        .filter(|d| keep_rdm || !d.is_physical_rdm)
-        .map(|d| d.capacity)
-        .sum()
+#[derive(Debug, Clone, Copy)]
+pub struct Options {
+    pub use_vpartition: bool,
+    pub keep_rdm: bool,
+    pub keep_independent: bool,
 }
 
-/// Apply pRDM exclusion and cap guest partition sums at eligible vDisk capacity.
-///
-/// When `disk_vec` is empty (no vDisk tab / no rows), behaviour matches the
-/// historical min(vInfo, ΣvPartition) join exactly.
+fn is_excluded(d: &Vdisk, opts: Options) -> bool {
+    (!opts.keep_rdm && d.is_physical_rdm) || (!opts.keep_independent && d.is_independent)
+}
+
+/// Apply disk awareness. Empty `disk_vec` and no Tools signals keep historical behaviour.
 pub fn apply(
     info_vec: &[Vinfo],
     grouped: &[Vpartition],
     disk_vec: &[Vdisk],
-    use_vpartition: bool,
-    keep_rdm: bool,
+    opts: Options,
 ) -> DiskAwarenessResult {
     let mut group_map = HashMap::new();
     for (i, j) in grouped.iter().enumerate() {
@@ -53,77 +52,195 @@ pub fn apply(
         disks_by_vm.entry(d.vm_name.as_str()).or_default().push(d);
     }
 
+    // Claim shared disks in stable VM-name order so capacity is counted once.
+    let mut vm_order: Vec<&Vinfo> = info_vec.iter().collect();
+    vm_order.sort_by(|a, b| a.vm_name.cmp(&b.vm_name));
+
+    let mut shared_owner: HashMap<String, String> = HashMap::new();
+    for info in &vm_order {
+        if let Some(disks) = disks_by_vm.get(info.vm_name.as_str()) {
+            for d in disks {
+                if d.is_shared {
+                    shared_owner
+                        .entry(d.share_key())
+                        .or_insert_with(|| info.vm_name.clone());
+                }
+            }
+        }
+    }
+
     let mut exceptions = Vec::new();
     let mut combined = Vec::new();
 
     for info in info_vec {
-        let disks = disks_by_vm.get(info.vm_name.as_str()).cloned().unwrap_or_default();
+        let disks = disks_by_vm
+            .get(info.vm_name.as_str())
+            .cloned()
+            .unwrap_or_default();
         let has_disks = !disks.is_empty();
-        let prdms: Vec<&Vdisk> = disks.iter().copied().filter(|d| d.is_physical_rdm).collect();
 
-        for d in &prdms {
-            exceptions.push(Exception {
-                vm_name: info.vm_name.clone(),
-                disk: d.disk_label.clone(),
-                reason: format!("physical_rdm ({})", d.raw_comp_mode),
-                capacity_mib: d.capacity,
-                action: if keep_rdm {
-                    "kept (--keep-rdm)".into()
+        // --- per-disk exceptions & eligibility ---
+        let mut eligible = 0.0_f64;
+        let mut any_contributing = false;
+
+        for d in &disks {
+            if d.is_physical_rdm {
+                exceptions.push(Exception {
+                    vm_name: info.vm_name.clone(),
+                    disk: d.disk_label.clone(),
+                    reason: format!("physical_rdm ({})", d.raw_comp_mode),
+                    capacity_mib: d.capacity,
+                    action: if opts.keep_rdm {
+                        "kept (--keep-rdm)".into()
+                    } else {
+                        "excluded from estimate".into()
+                    },
+                });
+            }
+            if d.is_independent {
+                exceptions.push(Exception {
+                    vm_name: info.vm_name.clone(),
+                    disk: d.disk_label.clone(),
+                    reason: format!("independent_disk ({})", d.disk_mode),
+                    capacity_mib: d.capacity,
+                    action: if opts.keep_independent {
+                        "kept (--keep-independent)".into()
+                    } else {
+                        "excluded from estimate".into()
+                    },
+                });
+            }
+
+            let mut counts = !is_excluded(d, opts);
+
+            if d.is_shared {
+                let key = d.share_key();
+                let owner = shared_owner.get(&key).map(String::as_str).unwrap_or("");
+                if counts && owner == info.vm_name {
+                    exceptions.push(Exception {
+                        vm_name: info.vm_name.clone(),
+                        disk: d.disk_label.clone(),
+                        reason: format!("shared_disk ({})", d.sharing),
+                        capacity_mib: d.capacity,
+                        action: "counted_once_on_this_vm".into(),
+                    });
+                } else if counts {
+                    exceptions.push(Exception {
+                        vm_name: info.vm_name.clone(),
+                        disk: d.disk_label.clone(),
+                        reason: format!("shared_disk ({})", d.sharing),
+                        capacity_mib: d.capacity,
+                        action: format!("deduped_already_counted_on_{owner}"),
+                    });
+                    counts = false;
                 } else {
-                    "excluded from estimate".into()
-                },
-            });
+                    exceptions.push(Exception {
+                        vm_name: info.vm_name.clone(),
+                        disk: d.disk_label.clone(),
+                        reason: format!("shared_disk ({})", d.sharing),
+                        capacity_mib: d.capacity,
+                        action: "noted_also_non_vadp".into(),
+                    });
+                }
+            }
+
+            if counts {
+                eligible += d.capacity;
+                any_contributing = true;
+            }
         }
 
-        if has_disks && !keep_rdm && prdms.len() == disks.len() {
+        if has_disks && !any_contributing {
+            let all_non_vadp = disks.iter().all(|d| is_excluded(d, opts));
+            if all_non_vadp {
+                exceptions.push(Exception {
+                    vm_name: info.vm_name.clone(),
+                    disk: "*".into(),
+                    reason: "no_vadp_eligible_disks".into(),
+                    capacity_mib: disks.iter().map(|d| d.capacity).sum(),
+                    action: "vm_excluded".into(),
+                });
+                continue;
+            }
+            // Shared disks already counted on another VM — keep the VM at 0 capacity.
             exceptions.push(Exception {
                 vm_name: info.vm_name.clone(),
                 disk: "*".into(),
-                reason: "all_disks_physical_rdm".into(),
-                capacity_mib: prdms.iter().map(|d| d.capacity).sum(),
-                action: "vm_excluded".into(),
+                reason: "no_vadp_eligible_disks".into(),
+                capacity_mib: 0.0,
+                action: "capacity_zero_after_shared_dedupe".into(),
             });
+            let mut zero = info.clone();
+            zero.capacity = 0.0;
+            zero.vpartition_capacity = None;
+            combined.push(zero);
             continue;
         }
 
-        let elig = if has_disks {
-            Some(eligible_mib(&disks, keep_rdm))
-        } else {
-            None
-        };
+        let elig = if has_disks { Some(eligible) } else { None };
+        let has_part = group_map.contains_key(info.vm_name.as_str());
+        let tools_bad = tools_unreliable(info.tools_status.as_deref());
+        let powered_on = info.powerstate.to_ascii_lowercase().contains("poweredon");
 
-        if !use_vpartition {
-            combined.push(info.clone());
-            continue;
-        }
-
-        if let Some(&j_idx) = group_map.get(info.vm_name.as_str()) {
-            let mut guest = grouped[j_idx].capacity;
-            let raw_guest = guest;
-            if let Some(cap) = elig {
-                if guest > cap {
-                    exceptions.push(Exception {
-                        vm_name: info.vm_name.clone(),
-                        disk: "*".into(),
-                        reason: "vpartition_capped_at_vdisk".into(),
-                        capacity_mib: raw_guest - cap,
-                        action: format!("capped {raw_guest:.2} -> {cap:.2} MiB"),
-                    });
-                    guest = cap;
-                }
-            }
-            combined.push(Vinfo {
+        // Tools / missing-guest heuristics (exceptions only unless tools_bad forces fallback).
+        if powered_on && opts.use_vpartition && !has_part {
+            exceptions.push(Exception {
                 vm_name: info.vm_name.clone(),
-                datacenter: info.datacenter.clone(),
-                cluster: info.cluster.clone(),
-                capacity: f64::min(info.capacity, guest),
-                powerstate: info.powerstate.clone(),
-                // Preserve the raw (pre-cap) guest sum for the -v column.
-                vpartition_capacity: Some(raw_guest),
+                disk: "*".into(),
+                reason: match info.tools_status.as_deref() {
+                    Some(t) if tools_bad => format!("no_vpartition ({t})"),
+                    Some(t) => format!("no_vpartition (tools={t})"),
+                    None => "no_vpartition_powered_on".into(),
+                },
+                capacity_mib: info.capacity,
+                action: "using_vinfo_vdisk_fallback".into(),
             });
-        } else {
-            combined.push(info.clone());
         }
+        if tools_bad && has_part && opts.use_vpartition {
+            exceptions.push(Exception {
+                vm_name: info.vm_name.clone(),
+                disk: "*".into(),
+                reason: format!(
+                    "tools_unreliable ({})",
+                    info.tools_status.as_deref().unwrap_or("")
+                ),
+                capacity_mib: grouped[group_map[info.vm_name.as_str()]].capacity,
+                action: "ignored_vpartition_using_vinfo_vdisk".into(),
+            });
+        }
+
+        let use_guest = opts.use_vpartition && has_part && !tools_bad;
+
+        if !use_guest {
+            // Historical path when there is no usable guest data: vInfo capacity.
+            // Do not cap at vDisk here — that would change In Use (swap/snapshots) totals.
+            combined.push(info.clone());
+            continue;
+        }
+
+        let mut guest = grouped[group_map[info.vm_name.as_str()]].capacity;
+        let raw_guest = guest;
+        if let Some(cap) = elig {
+            if guest > cap {
+                exceptions.push(Exception {
+                    vm_name: info.vm_name.clone(),
+                    disk: "*".into(),
+                    reason: "vpartition_capped_at_vdisk".into(),
+                    capacity_mib: raw_guest - cap,
+                    action: format!("capped {raw_guest:.2} -> {cap:.2} MiB"),
+                });
+                guest = cap;
+            }
+        }
+        combined.push(Vinfo {
+            vm_name: info.vm_name.clone(),
+            datacenter: info.datacenter.clone(),
+            cluster: info.cluster.clone(),
+            capacity: f64::min(info.capacity, guest),
+            powerstate: info.powerstate.clone(),
+            vpartition_capacity: Some(raw_guest),
+            tools_status: info.tools_status.clone(),
+        });
     }
 
     DiskAwarenessResult {
@@ -134,9 +251,7 @@ pub fn apply(
 
 pub fn render_exceptions(rows: &[Exception], format: SummaryFormat) -> Result<String> {
     Ok(match format {
-        SummaryFormat::Json => {
-            serde_json::to_string_pretty(rows).map(|s| s + "\n")?
-        }
+        SummaryFormat::Json => serde_json::to_string_pretty(rows).map(|s| s + "\n")?,
         SummaryFormat::Csv => {
             let mut wtr = csv::Writer::from_writer(vec![]);
             wtr.write_record(["vm_name", "disk", "reason", "capacity_mib", "action"])?;
@@ -218,7 +333,14 @@ mod tests {
             capacity: cap,
             powerstate: "poweredOn".into(),
             vpartition_capacity: None,
+            tools_status: None,
         }
+    }
+
+    fn info_tools(name: &str, cap: f64, tools: &str) -> Vinfo {
+        let mut v = info(name, cap);
+        v.tools_status = Some(tools.into());
+        v
     }
 
     fn part(name: &str, cap: f64) -> Vpartition {
@@ -228,17 +350,26 @@ mod tests {
         }
     }
 
-    fn disk(name: &str, cap: f64, physical: bool, label: &str) -> Vdisk {
+    fn disk_base(name: &str, cap: f64, label: &str) -> Vdisk {
         Vdisk {
             vm_name: name.into(),
             capacity: cap,
             disk_label: label.into(),
-            raw_comp_mode: if physical {
-                "physicalMode".into()
-            } else {
-                String::new()
-            },
-            is_physical_rdm: physical,
+            raw_comp_mode: String::new(),
+            disk_mode: String::new(),
+            sharing: String::new(),
+            disk_uuid: String::new(),
+            is_physical_rdm: false,
+            is_independent: false,
+            is_shared: false,
+        }
+    }
+
+    fn opts(keep_rdm: bool, keep_ind: bool) -> Options {
+        Options {
+            use_vpartition: true,
+            keep_rdm,
+            keep_independent: keep_ind,
         }
     }
 
@@ -246,73 +377,78 @@ mod tests {
     fn no_disks_matches_historical_min() {
         let infos = vec![info("a", 1000.0), info("b", 500.0)];
         let parts = vec![part("a", 400.0)];
-        let r = apply(&infos, &parts, &[], true, false);
+        let r = apply(&infos, &parts, &[], opts(false, false));
         assert_eq!(r.combined[0].capacity, 400.0);
         assert_eq!(r.combined[1].capacity, 500.0);
-        assert!(r.exceptions.is_empty());
     }
 
     #[test]
     fn physical_rdm_excluded_and_partition_capped() {
-        // VM has 200 VMDK + 800 pRDM; guest reports 900; vInfo 1000.
-        // Eligible = 200 → guest capped to 200 → min(1000,200)=200.
         let infos = vec![info("vm", 1000.0)];
         let parts = vec![part("vm", 900.0)];
-        let disks = vec![
-            disk("vm", 200.0, false, "Hard disk 1"),
-            disk("vm", 800.0, true, "Hard disk 2"),
-        ];
-        let r = apply(&infos, &parts, &disks, true, false);
-        assert_eq!(r.combined.len(), 1);
+        let mut d1 = disk_base("vm", 200.0, "Hard disk 1");
+        let mut d2 = disk_base("vm", 800.0, "Hard disk 2");
+        d2.raw_comp_mode = "physicalMode".into();
+        d2.is_physical_rdm = true;
+        let r = apply(&infos, &parts, &[d1, d2], opts(false, false));
         assert_eq!(r.combined[0].capacity, 200.0);
-        assert_eq!(r.combined[0].vpartition_capacity, Some(900.0));
         assert!(r.exceptions.iter().any(|e| e.reason.starts_with("physical_rdm")));
-        assert!(r
-            .exceptions
-            .iter()
-            .any(|e| e.reason == "vpartition_capped_at_vdisk"));
     }
 
     #[test]
-    fn keep_rdm_restores_capacity() {
+    fn independent_excluded_unless_kept() {
         let infos = vec![info("vm", 1000.0)];
         let parts = vec![part("vm", 900.0)];
-        let disks = vec![
-            disk("vm", 200.0, false, "Hard disk 1"),
-            disk("vm", 800.0, true, "Hard disk 2"),
-        ];
-        let r = apply(&infos, &parts, &disks, true, true);
-        // eligible = 1000, guest 900, min(1000,900)=900
-        assert_eq!(r.combined[0].capacity, 900.0);
-        assert!(r.exceptions.iter().all(|e| e.action.contains("kept")));
+        let mut d1 = disk_base("vm", 400.0, "Hard disk 1");
+        let mut d2 = disk_base("vm", 600.0, "Hard disk 2");
+        d2.disk_mode = "independentPersistent".into();
+        d2.is_independent = true;
+        let r = apply(&infos, &parts, &[d1.clone(), d2.clone()], opts(false, false));
+        assert_eq!(r.combined[0].capacity, 400.0);
+        let kept = apply(&infos, &parts, &[d1, d2], opts(false, true));
+        assert_eq!(kept.combined[0].capacity, 900.0);
     }
 
     #[test]
-    fn all_prdm_excludes_vm() {
-        let infos = vec![info("vm", 1000.0)];
-        let parts = vec![part("vm", 500.0)];
-        let disks = vec![disk("vm", 500.0, true, "Hard disk 1")];
-        let r = apply(&infos, &parts, &disks, true, false);
-        assert!(r.combined.is_empty());
+    fn shared_counted_once() {
+        let infos = vec![info("vm_a", 2000.0), info("vm_b", 2000.0)];
+        let parts = vec![part("vm_a", 1000.0), part("vm_b", 1000.0)];
+        let mut a = disk_base("vm_a", 1000.0, "Shared1");
+        a.is_shared = true;
+        a.sharing = "sharingMultiWriter".into();
+        a.disk_uuid = "UUID-1".into();
+        let mut b = disk_base("vm_b", 1000.0, "Shared1");
+        b.is_shared = true;
+        b.sharing = "sharingMultiWriter".into();
+        b.disk_uuid = "UUID-1".into();
+        let r = apply(&infos, &parts, &[a, b], opts(false, false));
+        assert_eq!(r.combined.len(), 2);
+        let total: f64 = r.combined.iter().map(|v| v.capacity).sum();
+        assert_eq!(total, 1000.0);
+        assert!(r.exceptions.iter().any(|e| e.action.starts_with("deduped")));
+        assert!(r.exceptions.iter().any(|e| e.action == "counted_once_on_this_vm"));
+    }
+
+    #[test]
+    fn tools_not_running_ignores_vpartition() {
+        let infos = vec![info_tools("vm", 1000.0, "toolsNotRunning")];
+        let parts = vec![part("vm", 100.0)];
+        let r = apply(&infos, &parts, &[], opts(false, false));
+        assert_eq!(r.combined[0].capacity, 1000.0);
         assert!(r
             .exceptions
             .iter()
-            .any(|e| e.reason == "all_disks_physical_rdm"));
+            .any(|e| e.reason.starts_with("tools_unreliable")));
     }
 
     #[test]
-    fn virtual_rdm_kept() {
-        let infos = vec![info("vm", 1000.0)];
-        let parts = vec![part("vm", 800.0)];
-        let disks = vec![Vdisk {
-            vm_name: "vm".into(),
-            capacity: 800.0,
-            disk_label: "Hard disk 1".into(),
-            raw_comp_mode: "virtualMode".into(),
-            is_physical_rdm: false,
-        }];
-        let r = apply(&infos, &parts, &disks, true, false);
-        assert_eq!(r.combined[0].capacity, 800.0);
-        assert!(r.exceptions.is_empty());
+    fn powered_on_without_partition_noted() {
+        let infos = vec![info("vm", 500.0)];
+        let r = apply(&infos, &[], &[], opts(false, false));
+        assert_eq!(r.combined[0].capacity, 500.0);
+        assert!(r
+            .exceptions
+            .iter()
+            .any(|e| e.reason.contains("no_vpartition")));
     }
 }

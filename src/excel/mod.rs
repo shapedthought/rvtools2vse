@@ -1,6 +1,6 @@
 use crate::{helpers, models::errors::MyError};
 use calamine::{open_workbook, Reader, Xlsx, XlsxError};
-use helpers::{as_display_string, is_physical_rdm_mode, ColPosition, GetFloat, GetString};
+use helpers::{as_display_string, is_independent_disk_mode, is_physical_rdm_mode, is_shared_disk_mode, ColPosition, GetFloat, GetString};
 use fastmurmur3;
 
 use crate::models::{
@@ -53,6 +53,8 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
 
         let cluster_column = workbook.get_col_pos(&"Cluster".to_string())?;
 
+        let tools_column = workbook.get_col_pos(&"Tools".to_string()).ok();
+
         for row in workbook.rows().enumerate().skip(1) {
             let power_state = &row.1[power_column]
                 .get_string_value("vInfo - column Powerstate vInfo".to_string(), row.0 + 1)?;
@@ -96,6 +98,15 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
             }
             cluster = &anon_cluster;
 
+            let tools_status = tools_column.and_then(|c| {
+                let t = as_display_string(&row.1[c]);
+                if t.is_empty() || t == "None" {
+                    None
+                } else {
+                    Some(t)
+                }
+            });
+
             info_vec.push(Vinfo {
                 vm_name: vm_name.to_string(),
                 datacenter: dc.to_string(),
@@ -103,6 +114,7 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                 capacity: *cap,
                 powerstate: power_state.to_string(),
                 vpartition_capacity: None,
+                tools_status,
             })
         }
         if let Some(dc_include) = &cli.dc_include {
@@ -245,6 +257,15 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                 }
                 let disk_label_column = disk.get_col_pos(&"Disk".to_string()).ok();
                 let disk_power_column = disk.get_col_pos(&"Powerstate".to_string()).ok();
+                let persistence_column = disk
+                    .get_col_pos(&"Disk Mode".to_string())
+                    .ok()
+                    .or_else(|| disk.get_col_pos(&"Mode".to_string()).ok());
+                let sharing_column = disk
+                    .get_col_pos(&"Sharing".to_string())
+                    .ok()
+                    .or_else(|| disk.get_col_pos(&"Sharing mode".to_string()).ok());
+                let uuid_column = disk.get_col_pos(&"Disk UUID".to_string()).ok();
 
                 for row in disk.rows().enumerate().skip(1) {
                     if let Some(col) = disk_power_column {
@@ -277,12 +298,42 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                         .filter(|s| !s.is_empty() && s != "None")
                         .unwrap_or_else(|| format!("disk@row{}", row.0 + 1));
 
+                    let disk_mode = persistence_column
+                        .map(|c| as_display_string(&row.1[c]))
+                        .unwrap_or_default();
+                    let disk_mode = if disk_mode == "None" {
+                        String::new()
+                    } else {
+                        disk_mode
+                    };
+                    let sharing = sharing_column
+                        .map(|c| as_display_string(&row.1[c]))
+                        .unwrap_or_default();
+                    let sharing = if sharing == "None" {
+                        String::new()
+                    } else {
+                        sharing
+                    };
+                    let disk_uuid = uuid_column
+                        .map(|c| as_display_string(&row.1[c]))
+                        .unwrap_or_default();
+                    let disk_uuid = if disk_uuid == "None" {
+                        String::new()
+                    } else {
+                        disk_uuid
+                    };
+
                     disk_vec.push(Vdisk {
                         vm_name: anon_data(vm_name, cli),
                         capacity: *cap,
                         disk_label: label,
                         raw_comp_mode: raw_comp.clone(),
+                        disk_mode: disk_mode.clone(),
+                        sharing: sharing.clone(),
+                        disk_uuid,
                         is_physical_rdm: is_physical_rdm_mode(&raw_comp),
+                        is_independent: is_independent_disk_mode(&disk_mode),
+                        is_shared: is_shared_disk_mode(&sharing),
                     });
                 }
             }

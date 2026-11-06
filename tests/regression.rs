@@ -182,3 +182,64 @@ fn exceptions_file_csv() {
     assert!(body.contains("physical_rdm"));
     let _ = std::fs::remove_file(&path);
 }
+
+const DISKS2: &str = "testdata/regression_disks2.xlsx";
+
+#[test]
+fn independent_disk_excluded_by_default() {
+    let (cap, n) = totals(&["-r", DISKS2]);
+    // ind 0.5 + share 1.0 + tools 2.0 + nopart 0.5 = 4.0; share_b at 0 still counted
+    assert!((cap - 4.0).abs() < 1e-6, "got {cap}");
+    assert_eq!(n, 5);
+    let (ok, _, stderr) = run(&["-r", DISKS2, "-s"]);
+    assert!(ok);
+    assert!(stderr.contains("independent_disk"));
+}
+
+#[test]
+fn keep_independent_restores_capacity() {
+    let (cap, _) = totals(&["-r", DISKS2, "--keep-independent"]);
+    // ind becomes 1.2; +1 +2 +0.5 = 4.7
+    assert!((cap - 4.7).abs() < 1e-6, "got {cap}");
+}
+
+#[test]
+fn shared_disk_counted_once() {
+    let (ok, _, stderr) = run(&["-r", DISKS2, "-s", "--format", "json"]);
+    assert!(ok);
+    assert!(stderr.contains("shared_disk"));
+    assert!(stderr.contains("counted_once_on_this_vm"));
+    assert!(stderr.contains("deduped_already_counted_on_"));
+    let v: serde_json::Value = serde_json::from_str(&run(&["-r", DISKS2, "-s", "--format", "json"]).1).unwrap();
+    let cl2: f64 = v["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["cluster"] == "CL2")
+        .map(|r| r["capacity_tb"].as_f64().unwrap())
+        .sum();
+    assert!((cl2 - 1.0).abs() < 1e-6, "CL2 shared total {cl2}");
+}
+
+#[test]
+fn tools_not_running_falls_back_to_vinfo() {
+    let (ok, _, stderr) = run(&["-r", DISKS2, "-s"]);
+    assert!(ok);
+    assert!(stderr.contains("tools_unreliable") || stderr.contains("toolsNotRunning"));
+    let v: serde_json::Value = serde_json::from_str(&run(&["-r", DISKS2, "-s", "--format", "json"]).1).unwrap();
+    let tools_row = v["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["cluster"] == "CL3")
+        .unwrap();
+    // CL3 = vm_tools 2.0 + vm_nopart 0.5
+    assert!((tools_row["capacity_tb"].as_f64().unwrap() - 2.5).abs() < 1e-6);
+}
+
+#[test]
+fn powered_on_without_vpartition_noted() {
+    let (ok, _, stderr) = run(&["-r", DISKS2, "-s"]);
+    assert!(ok);
+    assert!(stderr.contains("no_vpartition") || stderr.contains("vm_nopart"));
+}

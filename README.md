@@ -99,6 +99,8 @@ Options:
           Anonymize the data
       --keep-rdm
           Keep physical-compatibility RDM capacity in the estimate (excluded by default)
+      --keep-independent
+          Keep independent-mode disk capacity in the estimate (excluded by default)
       --exceptions-file <EXCEPTIONS_FILE>
           Write disk-awareness exceptions to a file (uses --format)
   -h, --help
@@ -125,7 +127,8 @@ Columns read (names must match exactly):
 | ---------- | ------- |
 | vInfo      | `VM`, `Powerstate`, `Datacenter`, `Cluster`, `In Use MiB` |
 | vPartition | `VM`, `Consumed MiB`, `Powerstate` (optional) |
-| vDisk      | `VM`, `Capacity MiB` (or `Capacity MB` with `--legacy`), `Raw Comp. Mode` (optional; needed to detect pRDMs), `Disk`, `Powerstate` (optional) |
+| vDisk      | `VM`, `Capacity MiB` (or `MB` with `--legacy`), `Raw Comp. Mode`, `Disk Mode`, `Sharing` / `Sharing mode`, `Disk UUID`, `Disk`, `Powerstate` (optional columns degrade gracefully) |
+| vInfo      | `Tools` (optional) — `toolsOk` / `toolsNotRunning` / `toolsNotInstalled` / … |
 
 If `vPartition` has no `Powerstate` column, a note is printed to stderr and power state comes from the matching vInfo row (partitions only count when they join to an included vInfo VM). If a workbook has no `vPartition` tab, a warning is printed and vInfo capacity is used for that file. VMs with an empty cluster are grouped under `None`.
 
@@ -133,20 +136,24 @@ If `vPartition` has no `Powerstate` column, a note is printed to stderr and powe
 
 By default, the tool sums each VM's vPartition `Consumed` values and uses the lower of that total and the vInfo `In Use` value. `-d/--do-not-use-vpartition` uses vInfo only. Powered-off VMs are excluded unless you pass `-i/--include-powered-off`.
 
-### Disk awareness (vDisk / physical RDMs)
+### Disk awareness (vDisk, independent, shared, Tools)
 
-When a workbook has a `vDisk` tab, the tool also:
+When a workbook has a `vDisk` tab, the tool:
 
-- Detects **physical-compatibility RDMs** (`Raw Comp. Mode` contains `physicalMode`) and **excludes** their capacity from the estimate by default (VADP/host-based backup cannot snapshot them). Virtual-compatibility RDMs (`virtualMode`) are kept.
-- Caps each VM's guest vPartition sum at the sum of its **eligible** vDisk capacities (non-pRDM disks, or all disks with `--keep-rdm`), so inflated guest figures cannot exceed the backupable virtual disks.
-- Writes a short **exceptions** list to stderr (VM, disk, reason, capacity, action). Use `--exceptions-file <path>` to write the same list with `--format` (`table`/`json`/`csv`/`md`).
+- Detects **physical-compatibility RDMs** (`Raw Comp. Mode` contains `physicalMode`) and **excludes** them by default. Virtual RDMs (`virtualMode`) are kept. Use `--keep-rdm` to include pRDMs.
+- Detects **independent** disks (`Disk Mode` contains `independent`, e.g. `independentPersistent` / `independentNonPersistent`) and **excludes** them by default (VMware will not snapshot them). Use `--keep-independent` to include them.
+- Detects **shared / multi-writer** disks (`Sharing` / `Sharing mode` contains `multiWriter`) and **counts each shared disk once** across VMs (by `Disk UUID` when present). The first VM (name sort) keeps the capacity; others get a dedupe exception.
+- Caps each VM's guest vPartition sum at the sum of its **eligible** vDisk capacities.
+- **Tools heuristics:** optional vInfo `Tools` column. If Tools is `toolsNotInstalled` / `toolsNotRunning`, guest vPartition data for that VM is ignored and capacity falls back to vInfo (same as having no partitions). Powered-on VMs with no vPartition rows are noted in exceptions; capacity stays on the vInfo/vDisk path.
+- Writes **exceptions** to stderr. `--exceptions-file <path>` writes them with `--format`.
 
 ```
---keep-rdm                 # include physical RDM capacity in the estimate
---exceptions-file out.csv  # with --format csv
+--keep-rdm
+--keep-independent
+--exceptions-file out.csv   # with --format csv
 ```
 
-If `vDisk` is missing, a note goes to stderr and behaviour matches earlier releases. Independent disks, multi-writer / bus sharing, and Tools-gap heuristics are **not** handled yet (later phases).
+If `vDisk` is missing, a note goes to stderr and sizing matches releases before disk awareness (aside from Tools / no-partition exception notes when those conditions apply).
 
 
 ### Filtering
@@ -221,11 +228,12 @@ rvtools2vse -D ./exports --dc-site-map dc_mapper.json -s --format md
 
 ## Known issues / later phases
 
-Disk awareness phase 1 only covers physical RDMs and the vPartition-vs-vDisk cap. Still open:
+Disk awareness now covers physical RDMs, independent disks, shared/multi-writer de-dupe, and basic Tools heuristics. Still open / speculative:
 
-- Independent disks (`independentPersistent` / `independentNonPersistent`) are still counted; Veeam skips them on host-based backup.
-- Shared / multi-writer disks may be double-counted and are not snapshottable via VADP.
-- VMs without VMware Tools still fall back to full vInfo `In Use` with no extra warning beyond a missing vPartition join.
+- SCSI **bus sharing** at the controller (`SharedBus`) is not read yet — only the per-disk `Sharing` / multi-writer flag.
+- In-guest iSCSI / raw volumes that appear only in vPartition (no vDisk) are not specially classified beyond the existing vPartition-vs-vDisk cap.
+- `toolsOld` is treated as usable Tools (partition data kept); only `toolsNotInstalled` / `toolsNotRunning` force a fallback.
+- A dedicated `vTools` tab is not ingested; only the optional vInfo `Tools` column.
 
 Other:
 
