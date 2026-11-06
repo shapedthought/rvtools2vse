@@ -132,9 +132,52 @@ def build_disks2(path):
     wb.save(path)
 
 
+def build_disk_summary(path, second_file=False):
+    """Shared independent attachments across files; caps masked by vInfo;
+    an all-independent VM; and a disk that is both pRDM and independent.
+    Default total across both files: 1.375 TiB / 4 VMs.
+    --keep-independent: 2.125 TiB / 5 VMs (+0.75, not 7.75 provisioned TiB).
+    """
+    wb = Workbook()
+    info = wb.active
+    info.title = "vInfo"
+    info.append(["VM", "Powerstate", "Datacenter", "Cluster", "In Use MiB", "Tools"])
+    part = wb.create_sheet("vPartition")
+    part.append(["VM", "Powerstate", "Consumed MiB"])
+    disk = wb.create_sheet("vDisk")
+    disk.append(["VM", "Powerstate", "Disk", "Capacity MiB", "Raw Comp. Mode", "Disk Mode", "Sharing", "Disk UUID"])
+    if second_file:
+        vms = [("vm_b", 1, 0.75)]
+        disks = [
+            ("vm_b", "boot", 0.5, "", "persistent", "", "BOOT-B"),
+            ("vm_b", "shared", 4, "", "independentPersistent", "sharingMultiWriter", " shared-independent "),
+        ]
+    else:
+        vms = [("vm_a", 1, 1.25), ("vm_floor", 0.125, 2),
+               ("vm_only_independent", 0.5, 0.25), ("vm_both", 0.5, 0.5)]
+        disks = [
+            ("vm_a", "boot", 0.5, "", "persistent", "", "BOOT-A"),
+            ("vm_a", "shared", 4, "", "independentPersistent", "sharingMultiWriter", "SHARED-INDEPENDENT"),
+            ("vm_a", "shared", 4, "", "independentPersistent", "sharingMultiWriter", "SHARED-INDEPENDENT"),
+            ("vm_floor", "boot", 0.25, "", "persistent", "", "BOOT-FLOOR"),
+            ("vm_floor", "independent", 1, "", "independentPersistent", "", "INDEPENDENT-FLOOR"),
+            ("vm_only_independent", "independent", 2, "", "independentPersistent", "", "INDEPENDENT-ONLY"),
+            ("vm_both", "boot", 0.25, "", "persistent", "", "BOOT-BOTH"),
+            ("vm_both", "independent-pRDM", 0.75, "physicalMode", "independentPersistent", "", "BOTH"),
+        ]
+    for vm, in_use, consumed in vms:
+        info.append([vm, "poweredOn", "DC-S", "CL", in_use * T, "toolsOk"])
+        part.append([vm, "poweredOn", consumed * T])
+    for vm, label, size, raw, mode, sharing, uuid in disks:
+        disk.append([vm, "poweredOn", label, size * T, raw, mode, sharing, uuid])
+    wb.save(path)
+
+
 here = Path(__file__).parent
 build_baseline(here / "regression_baseline.xlsx")
 build_baseline(here / "regression_no_part_powerstate.xlsx", part_powerstate=False)
 build_disks(here / "regression_disks.xlsx")
 build_disks2(here / "regression_disks2.xlsx")
-print("wrote baseline, no_part_powerstate, disks, disks2")
+build_disk_summary(here / "regression_disk_summary_a.xlsx")
+build_disk_summary(here / "regression_disk_summary_b.xlsx", second_file=True)
+print("wrote baseline, no_part_powerstate, disks, disks2, disk_summary_a, disk_summary_b")
