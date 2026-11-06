@@ -51,6 +51,8 @@ The container runs as **uid 1000** (`appuser`). Reading files only needs read ac
 Output of `rvtools2vse -h` (use `--help` for the long form):
 
 ```
+Offline RVTools xlsx summariser with VADP-oriented disk awareness (legacy VSE JSON output still available)
+
 Usage: rvtools2vse [OPTIONS]
 
 Options:
@@ -73,7 +75,7 @@ Options:
   -s, --show-info
           Print DC level summary
       --format <FORMAT>
-          Output format for the --show-info summary [default: table] [possible values: table, json, csv, md]
+          Output format for --show-info / --summary-file / --exceptions-file. If omitted, file outputs infer from the extension (.csv/.json/.md; otherwise table) [possible values: table, json, csv, md]
       --summary-file <SUMMARY_FILE>
           Write the --show-info summary to a file instead of stdout (implies --show-info)
       --dc-include <DC_INCLUDE>...
@@ -111,7 +113,9 @@ Options:
       --keep-independent
           Keep independent-mode disk capacity in the estimate (excluded by default)
       --exceptions-file <EXCEPTIONS_FILE>
-          Write disk-awareness exceptions to a file (uses --format)
+          Write disk-awareness exceptions to a file (format from --format or file extension)
+      --verbose
+          Print the full disk-awareness exceptions list to stderr (default is a compact summary). Note: short `-v` is already `--vm-table-print`
   -h, --help
           Print help (see more with '--help')
   -V, --version
@@ -154,12 +158,13 @@ When a workbook has a `vDisk` tab, the tool:
 - Detects **shared / multi-writer** disks (`Sharing` / `Sharing mode` contains `multiWriter`) and **counts each shared disk once** across VMs (by `Disk UUID` when present). The first VM (name sort) keeps the capacity; others get a dedupe exception.
 - Caps each VM's guest vPartition sum at the sum of its **eligible** vDisk capacities.
 - **Tools heuristics:** optional vInfo `Tools` column. If Tools is `toolsNotInstalled` / `toolsNotRunning`, guest vPartition data for that VM is ignored and capacity falls back to vInfo (same as having no partitions). Powered-on VMs with no vPartition rows are noted in exceptions; capacity stays on the vInfo/vDisk path.
-- Writes **exceptions** to stderr. `--exceptions-file <path>` writes them with `--format`.
+- Prints a **compact exceptions summary** to stderr by default (counts by reason + TB where useful). Use `--verbose` for the full per-disk list (`-v` remains `--vm-table-print`). `--exceptions-file <path>` always writes the full list; the format is taken from `--format` if set, otherwise from the file extension (`.csv` / `.json` / `.md`, else table).
 
 ```
 --keep-rdm
 --keep-independent
---exceptions-file out.csv   # with --format csv
+--exceptions-file out.csv   # CSV inferred from the extension
+--verbose                   # full exception lines on stderr
 ```
 
 If `vDisk` is missing, a note goes to stderr and sizing matches releases before disk awareness (aside from Tools / no-partition exception notes when those conditions apply).
@@ -180,7 +185,7 @@ If `vDisk` is missing, a note goes to stderr and sizing matches releases before 
 
 Rows are sorted by capacity, largest first. Capacity is in TB (binary, base 1024).
 
-`--summary-file <path>` writes the rendered summary to that file instead of stdout, and implies `-s`. The path is used **exactly as given**, with no extension added, so match it to the format (`--format csv --summary-file summary.csv`).
+`--summary-file <path>` writes the rendered summary to that file instead of stdout, and implies `-s`. The path is used **exactly as given** (no extension is added). Format comes from `--format` if set, otherwise from the file extension (e.g. `summary.csv` → csv).
 
 ### Grouping: `--flatten`, `--flatten-site`, `--dc-site-map`
 

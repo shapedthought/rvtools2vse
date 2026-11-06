@@ -43,9 +43,10 @@ pub struct Cli {
     #[clap(short, long, action, default_value_t = false)]
     pub show_info: bool,
 
-    /// Output format for the --show-info summary
-    #[clap(long, value_enum, default_value_t = SummaryFormat::Table)]
-    pub format: SummaryFormat,
+    /// Output format for --show-info / --summary-file / --exceptions-file.
+    /// If omitted, file outputs infer from the extension (.csv/.json/.md; otherwise table).
+    #[clap(long, value_enum)]
+    pub format: Option<SummaryFormat>,
 
     /// Write the --show-info summary to a file instead of stdout (implies --show-info)
     #[clap(long, value_parser)]
@@ -119,7 +120,12 @@ pub struct Cli {
     #[clap(long, action, default_value_t = false)]
     pub keep_independent: bool,
 
-    /// Write disk-awareness exceptions to a file (uses --format)
+    /// Write disk-awareness exceptions to a file (format from --format or file extension)
     #[clap(long, value_parser)]
     pub exceptions_file: Option<PathBuf>,
+
+    /// Print the full disk-awareness exceptions list to stderr (default is a compact summary).
+    /// Note: short `-v` is already `--vm-table-print`.
+    #[clap(long, action, default_value_t = false)]
+    pub verbose: bool,
 }

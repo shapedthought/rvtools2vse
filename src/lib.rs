@@ -80,11 +80,12 @@ pub fn run() -> Result<()> {
         },
     );
     let combined = awareness.combined;
-    disk::print_exceptions_stderr(&awareness.exceptions);
+    disk::print_exceptions_stderr(&awareness.exceptions, cli.verbose);
     if let Some(path) = &cli.exceptions_file {
-        let rendered = disk::render_exceptions(&awareness.exceptions, cli.format)?;
+        let fmt = summary::resolve_format(cli.format, Some(path.as_path()));
+        let rendered = disk::render_exceptions(&awareness.exceptions, fmt)?;
         fs::write(path, rendered)?;
-        eprintln!("Exceptions written to: {}", path.display());
+        eprintln!("Exceptions written to: {} ({fmt:?})", path.display());
     }
 
     let mut datacenters: Vec<Datacenter> = Vec::new();
@@ -184,17 +185,18 @@ pub fn run() -> Result<()> {
     }
 
     let show_info = cli.show_info || cli.summary_file.is_some();
+    let summary_fmt = summary::resolve_format(cli.format, cli.summary_file.as_deref());
     // json/csv to stdout must stay pipeable: suppress the trailing totals lines
     let machine_stdout = cli.show_info
         && cli.summary_file.is_none()
-        && matches!(cli.format, SummaryFormat::Json | SummaryFormat::Csv);
+        && matches!(summary_fmt, SummaryFormat::Json | SummaryFormat::Csv);
 
     if show_info {
-        let rendered = summary::render(&datacenters, cli.format)?;
+        let rendered = summary::render(&datacenters, summary_fmt)?;
         match &cli.summary_file {
             Some(path) => {
                 fs::write(path, rendered)?;
-                eprintln!("Summary written to: {}", path.display());
+                eprintln!("Summary written to: {} ({summary_fmt:?})", path.display());
             }
             None => print!("{rendered}"),
         }
