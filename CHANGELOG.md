@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-07
+
 ### Changed
 - Renamed the crate, library, CLI binary, release assets and container image from `rvtools2vse` to **`rvsum`**. Update scripts to call `rvsum` and use `ghcr.io/shapedthought/rvsum`; command-line flags and output schemas are unchanged.
 - Repository links now target `https://github.com/shapedthought/rvsum`. After the GitHub repository is renamed, the old repository URL will redirect. The old `ghcr.io/shapedthought/rvtools2vse` image name is frozen at **1.1.2** and will receive no new releases.
