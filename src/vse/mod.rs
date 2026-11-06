@@ -10,7 +10,7 @@ use crate::models::{
 
 pub fn vse_construct(
     datacenter_strings: Vec<String>,
-    datacenters: &Vec<Datacenter>,
+    datacenters: &[Datacenter],
     retention: Option<String>,
 ) -> Result<NewVse> {
     let sites = datacenter_strings
@@ -23,8 +23,8 @@ pub fn vse_construct(
         .iter()
         .map(|x| {
             PerfTierRepo::new(
-                format!("{}_repo", x),
-                format!("{}_repo", x),
+                format!("{x}_repo"),
+                format!("{x}_repo"),
                 x.to_string(),
                 false,
                 false,

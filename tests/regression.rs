@@ -56,7 +56,10 @@ fn vpartition_without_powerstate_does_not_fail() {
     assert!(ok, "should not fail: {stderr}");
     assert!(stderr.contains("no Powerstate column"));
     assert_eq!(totals(&["-r", NO_PART_POWER]), totals(&["-r", BASELINE]));
-    assert_eq!(totals(&["-r", NO_PART_POWER, "-i"]), totals(&["-r", BASELINE, "-i"]));
+    assert_eq!(
+        totals(&["-r", NO_PART_POWER, "-i"]),
+        totals(&["-r", BASELINE, "-i"])
+    );
 }
 
 #[test]
@@ -142,7 +145,9 @@ fn virtual_rdm_kept_in_estimate() {
     assert!(ok);
     // physical exclusions mention Hard disk 2 / vm_only_p, not the virtualMode disk as excluded
     assert!(stderr.contains("physical_rdm"));
-    assert!(!stderr.lines().any(|l| l.contains("vm_vrdm") && l.contains("excluded")));
+    assert!(!stderr
+        .lines()
+        .any(|l| l.contains("vm_vrdm") && l.contains("excluded")));
     let v: serde_json::Value =
         serde_json::from_str(&run(&["-r", DISKS, "-s", "--format", "json"]).1).unwrap();
     let cl2: f64 = v["rows"]
@@ -210,7 +215,8 @@ fn shared_disk_counted_once() {
     assert!(stderr.contains("shared_disk"));
     assert!(stderr.contains("counted_once_on_this_vm"));
     assert!(stderr.contains("deduped_already_counted_on_"));
-    let v: serde_json::Value = serde_json::from_str(&run(&["-r", DISKS2, "-s", "--format", "json"]).1).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&run(&["-r", DISKS2, "-s", "--format", "json"]).1).unwrap();
     let cl2: f64 = v["rows"]
         .as_array()
         .unwrap()
@@ -226,7 +232,8 @@ fn tools_not_running_falls_back_to_vinfo() {
     let (ok, _, stderr) = run(&["-r", DISKS2, "-s"]);
     assert!(ok);
     assert!(stderr.contains("tools_unreliable") || stderr.contains("toolsNotRunning"));
-    let v: serde_json::Value = serde_json::from_str(&run(&["-r", DISKS2, "-s", "--format", "json"]).1).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&run(&["-r", DISKS2, "-s", "--format", "json"]).1).unwrap();
     let tools_row = v["rows"]
         .as_array()
         .unwrap()

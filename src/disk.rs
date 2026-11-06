@@ -386,24 +386,32 @@ mod tests {
     fn physical_rdm_excluded_and_partition_capped() {
         let infos = vec![info("vm", 1000.0)];
         let parts = vec![part("vm", 900.0)];
-        let mut d1 = disk_base("vm", 200.0, "Hard disk 1");
+        let d1 = disk_base("vm", 200.0, "Hard disk 1");
         let mut d2 = disk_base("vm", 800.0, "Hard disk 2");
         d2.raw_comp_mode = "physicalMode".into();
         d2.is_physical_rdm = true;
         let r = apply(&infos, &parts, &[d1, d2], opts(false, false));
         assert_eq!(r.combined[0].capacity, 200.0);
-        assert!(r.exceptions.iter().any(|e| e.reason.starts_with("physical_rdm")));
+        assert!(r
+            .exceptions
+            .iter()
+            .any(|e| e.reason.starts_with("physical_rdm")));
     }
 
     #[test]
     fn independent_excluded_unless_kept() {
         let infos = vec![info("vm", 1000.0)];
         let parts = vec![part("vm", 900.0)];
-        let mut d1 = disk_base("vm", 400.0, "Hard disk 1");
+        let d1 = disk_base("vm", 400.0, "Hard disk 1");
         let mut d2 = disk_base("vm", 600.0, "Hard disk 2");
         d2.disk_mode = "independentPersistent".into();
         d2.is_independent = true;
-        let r = apply(&infos, &parts, &[d1.clone(), d2.clone()], opts(false, false));
+        let r = apply(
+            &infos,
+            &parts,
+            &[d1.clone(), d2.clone()],
+            opts(false, false),
+        );
         assert_eq!(r.combined[0].capacity, 400.0);
         let kept = apply(&infos, &parts, &[d1, d2], opts(false, true));
         assert_eq!(kept.combined[0].capacity, 900.0);
@@ -426,7 +434,10 @@ mod tests {
         let total: f64 = r.combined.iter().map(|v| v.capacity).sum();
         assert_eq!(total, 1000.0);
         assert!(r.exceptions.iter().any(|e| e.action.starts_with("deduped")));
-        assert!(r.exceptions.iter().any(|e| e.action == "counted_once_on_this_vm"));
+        assert!(r
+            .exceptions
+            .iter()
+            .any(|e| e.action == "counted_once_on_this_vm"));
     }
 
     #[test]

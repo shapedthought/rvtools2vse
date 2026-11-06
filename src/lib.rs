@@ -19,11 +19,7 @@ use itertools::Itertools;
 
 use crate::{
     excel::get_excel,
-    models::{
-        cli::Cli,
-        new_model::Mapper,
-        rvtools::{Datacenter},
-    },
+    models::{cli::Cli, new_model::Mapper, rvtools::Datacenter},
     vse::vse_construct,
 };
 use summary::SummaryFormat;
@@ -110,7 +106,7 @@ pub fn run() -> Result<()> {
 
                 datacenters.push(Datacenter {
                     name: key.to_string(),
-                    cluster: format!("{}_cluster", key.to_string()),
+                    cluster: format!("{key}_cluster"),
                     vm_count,
                     capacity: cap / devisor,
                 })
@@ -164,12 +160,12 @@ pub fn run() -> Result<()> {
             map_item.dc_names.iter().for_each(|site| {
                 let dc_cap: f64 = datacenters
                     .iter()
-                    .filter(|x| x.name.contains(&*site))
+                    .filter(|x| x.name.contains(site))
                     .map(|x| x.capacity)
                     .sum();
                 let dc_vm_count: usize = datacenters
                     .iter()
-                    .filter(|x| x.name.contains(&*site))
+                    .filter(|x| x.name.contains(site))
                     .map(|x| x.vm_count)
                     .sum();
                 cap += dc_cap;
@@ -243,24 +239,24 @@ pub fn run() -> Result<()> {
 
     let datacenter_strings = datacenters
         .iter()
-        .map(|x| format!("{}", x.name))
+        .map(|x| x.name.to_string())
         .sorted()
         .dedup()
         .collect::<Vec<_>>();
 
     if cli.dc_print {
-        datacenter_strings.iter().for_each(|x| println!("{:?},", x))
+        datacenter_strings.iter().for_each(|x| println!("{x:?},"))
     }
 
     let vse = vse_construct(datacenter_strings, &datacenters, cli.retention)?;
 
     if cli.print {
-        println!("{:#?}", vse);
+        println!("{vse:#?}");
     }
 
     if cli.print_json {
         let combined_json = serde_json::to_string_pretty(&combined)?;
-        println!("{}", combined_json);
+        println!("{combined_json}");
     }
 
     if cli.plot {
@@ -279,15 +275,15 @@ pub fn run() -> Result<()> {
 
     if !cli.print_json && !machine_stdout {
         let total_vms = combined.len();
-        println!("Total VMs: {}", total_vms);
+        println!("Total VMs: {total_vms}");
 
         let total_cap = datacenters.iter().fold(0.0, |acc, x| acc + x.capacity);
 
-        println!("Total Capacity: {:.2} TB", total_cap);
+        println!("Total Capacity: {total_cap:.2} TB");
 
         let average_vm = (total_cap * 1024.0) / total_vms as f64;
 
-        println!("Average VM Size: {:.2} GB", average_vm);
+        println!("Average VM Size: {average_vm:.2} GB");
     }
 
     if let Some(mut file_name) = cli.output_file {
@@ -298,7 +294,7 @@ pub fn run() -> Result<()> {
         let vse_string = serde_json::to_string_pretty(&vse)?;
         json_file.write_all(vse_string.as_bytes())?;
 
-        println!("VSE file written to: {}", file_name);
+        println!("VSE file written to: {file_name}");
     }
 
     Ok(())

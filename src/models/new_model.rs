@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)] // derive(new) on VSE structs
 use derive_new::new;
 use serde::Deserialize;
 use serde::Serialize;
