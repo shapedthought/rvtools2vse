@@ -1,9 +1,10 @@
 use crate::{helpers, models::errors::MyError};
-use calamine::{open_workbook, Reader, Xlsx, XlsxError};
+use calamine::{open_workbook, Data, Range, Reader, Xlsx, XlsxError};
 use helpers::{
     as_display_string, is_independent_disk_mode, is_physical_rdm_mode, is_shared_disk_mode,
     ColPosition, GetFloat, GetString,
 };
+use std::collections::{HashMap, HashSet};
 
 use crate::models::{
     cli::Cli,
@@ -56,7 +57,10 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
         let cluster_column = workbook.get_col_pos("Cluster")?;
 
         let tools_column = workbook.get_col_pos("Tools").ok();
+        let mut file_ids: Vec<(String, String, String)> = Vec::new();
+        let info_ids = IdColumns::find(&workbook);
 
+        let mut file_info: Vec<Vinfo> = Vec::new();
         for row in workbook.rows().enumerate().skip(1) {
             let power_state = &row.1[power_column]
                 .get_string_value("vInfo - column Powerstate vInfo".to_string(), row.0 + 1)?;
@@ -65,11 +69,8 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                 continue;
             }
 
-            let mut vm_name =
+            let vm_name =
                 &row.1[vm_column].get_string_value("vInfo - column 'VM'".to_string(), row.0 + 1)?;
-
-            let anonymized_vm_name = anon_data(vm_name, cli);
-            vm_name = &anonymized_vm_name;
 
             let cap_error_string = if cli.legacy {
                 "vInfo - column 'Capacity MB'"
@@ -80,25 +81,15 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
             let cap =
                 &row.1[cap_column].get_float_value(cap_error_string.to_string(), row.0 + 1)?;
 
-            let mut dc = &row.1[dc_column]
+            // Real names are kept here; --anonymize hashes after filters/site maps.
+            let dc = &row.1[dc_column]
                 .get_string_value("vInfo - column 'Datacenter'".to_string(), row.0 + 1)?;
 
-            let mut anan_dc = dc.clone();
-            if cli.anonymize {
-                let hash = fastmurmur3::hash(dc.as_bytes());
-                anan_dc = hash.to_string();
-            };
-            dc = &anan_dc;
-
-            let mut cluster = &row.1[cluster_column]
+            let cluster = &row.1[cluster_column]
                 .get_string_value("vInfo - column 'Cluster'".to_string(), row.0 + 1)?;
 
-            let mut anon_cluster = cluster.clone();
-            if cli.anonymize {
-                let hash = fastmurmur3::hash(cluster.as_bytes());
-                anon_cluster = hash.to_string();
-            }
-            cluster = &anon_cluster;
+            let (instance_uuid, bios_uuid) = info_ids.read(row.1);
+            let key = format!("{i}#{}", row.0 + 1);
 
             let tools_status = tools_column.and_then(|c| {
                 let t = as_display_string(&row.1[c]);
@@ -109,7 +100,7 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                 }
             });
 
-            info_vec.push(Vinfo {
+            file_info.push(Vinfo {
                 vm_name: vm_name.to_string(),
                 datacenter: dc.to_string(),
                 cluster: cluster.to_string(),
@@ -117,38 +108,49 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                 powerstate: power_state.to_string(),
                 vpartition_capacity: None,
                 tools_status,
-            })
+                vm_key: key.clone(),
+                vm_uuid: if instance_uuid.is_empty() {
+                    bios_uuid.clone()
+                } else {
+                    instance_uuid.clone()
+                },
+            });
+            file_ids.push((key, instance_uuid, bios_uuid));
         }
+        let mut info_vec_file = file_info;
         if let Some(dc_include) = &cli.dc_include {
-            info_vec = info_vec
+            info_vec_file = info_vec_file
                 .into_iter()
                 .filter(|x| dc_include.contains(&x.datacenter))
                 .collect::<Vec<Vinfo>>();
         }
         if let Some(cluster_include) = &cli.cluster_include {
-            info_vec = info_vec
+            info_vec_file = info_vec_file
                 .into_iter()
                 .filter(|x| cluster_include.contains(&x.cluster))
                 .collect::<Vec<Vinfo>>();
         }
         if let Some(dc_exclude) = &cli.dc_exclude {
-            info_vec = info_vec
+            info_vec_file = info_vec_file
                 .into_iter()
                 .filter(|x| !dc_exclude.contains(&x.datacenter))
                 .collect::<Vec<Vinfo>>();
         }
         if let Some(cluster_exclude) = &cli.cluster_exclude {
-            info_vec = info_vec
+            info_vec_file = info_vec_file
                 .into_iter()
                 .filter(|x| !cluster_exclude.contains(&x.cluster))
                 .collect::<Vec<Vinfo>>();
         }
         if let Some(vm_exclude) = &cli.vm_exclude {
-            info_vec = info_vec
+            info_vec_file = info_vec_file
                 .into_iter()
                 .filter(|x| !vm_exclude.contains(&x.vm_name))
                 .collect::<Vec<Vinfo>>();
         }
+
+        let index = JoinIndex::new(&info_vec_file, &file_ids);
+        info_vec.extend(info_vec_file);
 
         // calamine >= 0.20 returns Err(WorksheetNotFound) instead of None for a
         // missing sheet; map it back to Option<Result<_>> to keep behaviour.
@@ -190,6 +192,7 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                 };
 
                 let part_cap_column = partition.get_col_pos(consumed_string)?;
+                let part_ids = IdColumns::find(&partition);
                 for row in partition.rows().enumerate().skip(1) {
                     if let Some(col) = part_power_column {
                         let power_state = &row.1[col].get_string_value(
@@ -214,9 +217,10 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                     let cap = &row.1[part_cap_column]
                         .get_float_value(cap_error_string.to_string(), row.0 + 1)?;
 
-                    // Hash with the same mapping as vInfo so the join still matches
+                    let (inst, bios) = part_ids.read(row.1);
                     part_vec.push(Vpartition {
-                        vm_name: anon_data(vm_name, cli),
+                        vm_key: index.resolve(i, &inst, &bios, vm_name),
+                        vm_name: vm_name.to_string(),
                         capacity: *cap,
                     })
                 }
@@ -266,7 +270,8 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                     .get_col_pos("Sharing")
                     .ok()
                     .or_else(|| disk.get_col_pos("Sharing mode").ok());
-                let uuid_column = disk.get_col_pos("Disk UUID").ok();
+                let uuid_column = find_col(&disk, &["Disk UUID"]);
+                let disk_ids = IdColumns::find(&disk);
 
                 for row in disk.rows().enumerate().skip(1) {
                     if let Some(col) = disk_power_column {
@@ -324,8 +329,9 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                         disk_uuid
                     };
 
+                    let (inst, bios) = disk_ids.read(row.1);
                     disk_vec.push(Vdisk {
-                        vm_name: anon_data(vm_name, cli),
+                        vm_key: index.resolve(i, &inst, &bios, vm_name),
                         capacity: *cap,
                         disk_label: label,
                         raw_comp_mode: raw_comp.clone(),
@@ -344,10 +350,112 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
     Ok((info_vec, part_vec, disk_vec))
 }
 
-fn anon_data(item: &str, cli: &Cli) -> String {
-    if cli.anonymize {
-        fastmurmur3::hash(item.as_bytes()).to_string()
+/// Case/whitespace-insensitive header lookup over several candidate names.
+fn find_col(range: &Range<Data>, names: &[&str]) -> Option<usize> {
+    let header = range.rows().next()?;
+    names.iter().find_map(|want| {
+        header.iter().position(|h| match h {
+            Data::String(s) => s.trim().eq_ignore_ascii_case(want),
+            _ => false,
+        })
+    })
+}
+
+fn clean_id(d: &Data) -> String {
+    let s = as_display_string(d);
+    let s = s.trim();
+    if s.is_empty() || s.eq_ignore_ascii_case("none") {
+        String::new()
     } else {
-        item.to_string()
+        s.to_ascii_lowercase()
+    }
+}
+
+/// Optional VM identity columns present on vInfo, vPartition and vDisk.
+struct IdColumns {
+    instance: Option<usize>,
+    bios: Option<usize>,
+}
+
+impl IdColumns {
+    fn find(range: &Range<Data>) -> Self {
+        IdColumns {
+            instance: find_col(
+                range,
+                &["VM Instance UUID", "Instance UUID", "InstanceUUID"],
+            ),
+            bios: find_col(range, &["VM UUID", "SMBIOS UUID", "BIOS UUID", "UUID"]),
+        }
+    }
+
+    fn read(&self, row: &[Data]) -> (String, String) {
+        let get = |c: Option<usize>| c.and_then(|c| row.get(c)).map(clean_id).unwrap_or_default();
+        (get(self.instance), get(self.bios))
+    }
+}
+
+/// Per-file lookup from child-sheet identity to a vInfo record key.
+struct JoinIndex {
+    instance: HashMap<String, String>,
+    bios: HashMap<String, String>,
+    name: HashMap<String, String>,
+}
+
+impl JoinIndex {
+    fn new(infos: &[Vinfo], ids: &[(String, String, String)]) -> Self {
+        let kept: HashSet<&str> = infos.iter().map(|v| v.vm_key.as_str()).collect();
+        let mut idx = JoinIndex {
+            instance: HashMap::new(),
+            bios: HashMap::new(),
+            name: HashMap::new(),
+        };
+        for v in infos {
+            idx.name
+                .entry(v.vm_name.clone())
+                .or_insert_with(|| v.vm_key.clone());
+        }
+        for (key, inst, bios) in ids {
+            if kept.contains(key.as_str()) {
+                idx.add_ids(key, inst, bios);
+            }
+        }
+        idx
+    }
+
+    fn add_ids(&mut self, key: &str, instance: &str, bios: &str) {
+        if !instance.is_empty() {
+            self.instance
+                .entry(instance.to_string())
+                .or_insert_with(|| key.to_string());
+        }
+        if !bios.is_empty() {
+            self.bios
+                .entry(bios.to_string())
+                .or_insert_with(|| key.to_string());
+        }
+    }
+
+    /// Instance UUID, then VM UUID, then (first record with) the VM name.
+    /// Unmatched rows get a key no vInfo record has, so they never join.
+    fn resolve(&self, file: usize, instance: &str, bios: &str, name: &str) -> String {
+        let unmatched = || format!("{file}#unmatched:{name}");
+        if !instance.is_empty() && !self.instance.is_empty() {
+            if let Some(k) = self.instance.get(instance) {
+                return k.clone();
+            }
+        }
+        if !bios.is_empty() && !self.bios.is_empty() {
+            if let Some(k) = self.bios.get(bios) {
+                return k.clone();
+            }
+        }
+        // A UUID the file's vInfo knows the scheme for but not the value means a
+        // different (filtered or unlisted) VM: never fall back to its name.
+        if (!instance.is_empty() && !self.instance.is_empty())
+            || (!bios.is_empty() && !self.bios.is_empty())
+        {
+            return unmatched();
+        }
+        self.name.get(name).cloned().unwrap_or_else(unmatched)
     }
 }

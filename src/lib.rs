@@ -59,13 +59,20 @@ pub fn run() -> Result<()> {
 
     let grouped: Vec<crate::models::rvtools::Vpartition> = part_vec
         .into_iter()
-        .sorted_by_key(|x| x.vm_name.clone())
-        .group_by(|x| x.vm_name.clone())
+        .sorted_by_key(|x| x.vm_key.clone())
+        .group_by(|x| x.vm_key.clone())
         .into_iter()
-        .map(|(name, group)| {
-            let total = group.map(|x| x.capacity).sum();
+        .map(|(key, group)| {
+            let mut name = String::new();
+            let total = group
+                .map(|x| {
+                    name.clone_from(&x.vm_name);
+                    x.capacity
+                })
+                .sum();
             crate::models::rvtools::Vpartition {
                 vm_name: name,
+                vm_key: key,
                 capacity: total,
             }
         })
@@ -81,8 +88,16 @@ pub fn run() -> Result<()> {
             keep_independent: cli.keep_independent,
         },
     );
+    let mut awareness = awareness;
+    if cli.anonymize {
+        // Filters and joins above used real names; hash only what is reported.
+        awareness
+            .exceptions
+            .iter_mut()
+            .for_each(|e| e.vm_name = anon(&e.vm_name));
+    }
     disk::print_exceptions_stderr(&awareness, cli.verbose);
-    let combined = awareness.combined;
+    let mut combined = awareness.combined;
     if let Some(path) = &cli.exceptions_file {
         let fmt = summary::resolve_format(cli.format, Some(path.as_path()));
         let rendered = disk::render_exceptions(&awareness.exceptions, fmt)?;
@@ -151,7 +166,7 @@ pub fn run() -> Result<()> {
         })
     }
 
-    if let Some(dc_map) = cli.dc_site_map {
+    if let Some(dc_map) = &cli.dc_site_map {
         let mapper_file = fs::read_to_string(dc_map)?;
         let dc_map: Vec<Mapper> = serde_json::from_str(&mapper_file)?;
 
@@ -184,6 +199,28 @@ pub fn run() -> Result<()> {
         });
 
         datacenters = temp_dc;
+    }
+
+    if cli.anonymize {
+        // Site maps and filters matched real names; hash the reported labels now.
+        // Site-map group names and the --flatten labels are user/tool labels, not inventory names.
+        let flatten_site = cli.flatten_site && !cli.flatten && cli.dc_site_map.is_none();
+        let flatten = cli.flatten && !cli.flatten_site && cli.dc_site_map.is_none();
+        if cli.dc_site_map.is_none() && !flatten {
+            datacenters.iter_mut().for_each(|d| {
+                d.name = anon(&d.name);
+                d.cluster = if flatten_site {
+                    format!("{}_cluster", d.name)
+                } else {
+                    anon(&d.cluster)
+                };
+            });
+        }
+        combined.iter_mut().for_each(|v| {
+            v.vm_name = anon(&v.vm_name);
+            v.datacenter = anon(&v.datacenter);
+            v.cluster = anon(&v.cluster);
+        });
     }
 
     let show_info = cli.show_info || cli.summary_file.is_some();
@@ -302,4 +339,8 @@ pub fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn anon(item: &str) -> String {
+    fastmurmur3::hash(item.as_bytes()).to_string()
 }
