@@ -110,4 +110,12 @@ pub struct Cli {
     /// Anonymize the data
     #[clap(long, action, default_value_t = false)]
     pub anonymize: bool,
+
+    /// Keep physical-compatibility RDM capacity in the estimate (excluded by default)
+    #[clap(long, action, default_value_t = false)]
+    pub keep_rdm: bool,
+
+    /// Write disk-awareness exceptions to a file (uses --format)
+    #[clap(long, value_parser)]
+    pub exceptions_file: Option<PathBuf>,
 }

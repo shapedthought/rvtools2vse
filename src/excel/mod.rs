@@ -1,14 +1,16 @@
 use crate::{helpers, models::errors::MyError};
 use calamine::{open_workbook, Reader, Xlsx, XlsxError};
-use helpers::{ColPosition, GetFloat, GetString};
+use helpers::{as_display_string, is_physical_rdm_mode, ColPosition, GetFloat, GetString};
 use fastmurmur3;
 
 use crate::models::{
     cli::Cli,
-    rvtools::{Vinfo, Vpartition},
+    rvtools::{Vdisk, Vinfo, Vpartition},
 };
 
-pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
+type ExcelSheets = (Vec<Vinfo>, Vec<Vpartition>, Vec<Vdisk>);
+
+pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
     let mut excel_vec: Vec<Xlsx<_>> = Vec::new();
 
     if cli.rvtools_files.len() == 0 {
@@ -24,6 +26,7 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
 
     let mut info_vec: Vec<Vinfo> = Vec::new();
     let mut part_vec: Vec<Vpartition> = Vec::new();
+    let mut disk_vec: Vec<Vdisk> = Vec::new();
 
     for (i, mut excel) in excel_vec.into_iter().enumerate() {
         let workbook = match excel.worksheet_range("vInfo") {
@@ -211,9 +214,82 @@ pub fn get_excel(cli: &Cli) -> Result<(Vec<Vinfo>, Vec<Vpartition>), MyError> {
                 );
             }
         }
+
+        let disk_sheet = match excel.worksheet_range("vDisk") {
+            Err(XlsxError::WorksheetNotFound(_)) => None,
+            other => Some(other),
+        };
+
+        match disk_sheet {
+            None => {
+                eprintln!(
+                    "vDisk sheet not found in {:?}, continuing without disk awareness.",
+                    cli.rvtools_files[i]
+                );
+            }
+            Some(Err(e)) => return Err(e.into()),
+            Some(Ok(disk)) => {
+                let disk_vm_column = disk.get_col_pos(&"VM".to_string())?;
+                let disk_cap_string = if cli.legacy {
+                    "Capacity MB"
+                } else {
+                    "Capacity MiB"
+                };
+                let disk_cap_column = disk.get_col_pos(&disk_cap_string.to_string())?;
+                let disk_mode_column = disk.get_col_pos(&"Raw Comp. Mode".to_string()).ok();
+                if disk_mode_column.is_none() {
+                    eprintln!(
+                        "vDisk in {:?} has no 'Raw Comp. Mode' column; physical RDMs cannot be detected.",
+                        cli.rvtools_files[i]
+                    );
+                }
+                let disk_label_column = disk.get_col_pos(&"Disk".to_string()).ok();
+                let disk_power_column = disk.get_col_pos(&"Powerstate".to_string()).ok();
+
+                for row in disk.rows().enumerate().skip(1) {
+                    if let Some(col) = disk_power_column {
+                        let power_state = as_display_string(&row.1[col]);
+                        if power_state.contains("poweredOff") && !cli.include_powered_off {
+                            continue;
+                        }
+                    }
+
+                    let vm_name = &row.1[disk_vm_column]
+                        .get_string_value("vDisk - column 'VM'".to_string(), row.0 + 1)?;
+
+                    let cap = &row.1[disk_cap_column].get_float_value(
+                        format!("vDisk - column '{disk_cap_string}'"),
+                        row.0 + 1,
+                    )?;
+
+                    let raw_comp = disk_mode_column
+                        .map(|c| as_display_string(&row.1[c]))
+                        .unwrap_or_default();
+                    // get_string_value maps Empty -> "None"; treat that as blank.
+                    let raw_comp = if raw_comp == "None" {
+                        String::new()
+                    } else {
+                        raw_comp
+                    };
+
+                    let label = disk_label_column
+                        .map(|c| as_display_string(&row.1[c]))
+                        .filter(|s| !s.is_empty() && s != "None")
+                        .unwrap_or_else(|| format!("disk@row{}", row.0 + 1));
+
+                    disk_vec.push(Vdisk {
+                        vm_name: anon_data(vm_name, cli),
+                        capacity: *cap,
+                        disk_label: label,
+                        raw_comp_mode: raw_comp.clone(),
+                        is_physical_rdm: is_physical_rdm_mode(&raw_comp),
+                    });
+                }
+            }
+        }
     }
 
-    Ok((info_vec, part_vec))
+    Ok((info_vec, part_vec, disk_vec))
 }
 
 fn anon_data(item: &String, cli: &Cli) -> String {
