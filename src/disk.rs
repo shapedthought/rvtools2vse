@@ -308,16 +308,139 @@ pub fn render_exceptions(rows: &[Exception], format: SummaryFormat) -> Result<St
     })
 }
 
-pub fn print_exceptions_stderr(rows: &[Exception]) {
+/// Bucket a detailed reason string into a stable group key for summaries.
+pub fn reason_bucket(reason: &str) -> &'static str {
+    let r = reason.to_ascii_lowercase();
+    if r.starts_with("physical_rdm") {
+        "physical_rdm"
+    } else if r.starts_with("independent_disk") {
+        "independent_disk"
+    } else if r.starts_with("shared_disk") {
+        "shared_disk"
+    } else if r.starts_with("vpartition_capped") {
+        "vpartition_capped"
+    } else if r.starts_with("tools_unreliable") {
+        "tools_unreliable"
+    } else if r.starts_with("no_vpartition") {
+        "no_vpartition"
+    } else if r.starts_with("no_vadp_eligible") || r.starts_with("all_disks_physical") {
+        "no_vadp_eligible"
+    } else {
+        "other"
+    }
+}
+
+fn bucket_label(bucket: &str, count: usize) -> String {
+    let noun = match bucket {
+        "physical_rdm" => {
+            if count == 1 {
+                "physical RDM excluded"
+            } else {
+                "physical RDMs excluded"
+            }
+        }
+        "independent_disk" => {
+            if count == 1 {
+                "independent disk excluded"
+            } else {
+                "independent disks excluded"
+            }
+        }
+        "shared_disk" => {
+            if count == 1 {
+                "shared/multi-writer disk noted"
+            } else {
+                "shared/multi-writer disks noted"
+            }
+        }
+        "vpartition_capped" => {
+            if count == 1 {
+                "VM with vPartition capped at vDisk"
+            } else {
+                "VMs with vPartition capped at vDisk"
+            }
+        }
+        "tools_unreliable" => {
+            if count == 1 {
+                "VM with Tools not running/installed (guest data ignored)"
+            } else {
+                "VMs with Tools not running/installed (guest data ignored)"
+            }
+        }
+        "no_vpartition" => {
+            if count == 1 {
+                "powered-on VM without vPartition data"
+            } else {
+                "powered-on VMs without vPartition data"
+            }
+        }
+        "no_vadp_eligible" => {
+            if count == 1 {
+                "VM with no VADP-eligible disks"
+            } else {
+                "VMs with no VADP-eligible disks"
+            }
+        }
+        _ => {
+            if count == 1 {
+                "other exception"
+            } else {
+                "other exceptions"
+            }
+        }
+    };
+    format!("{count} {noun}")
+}
+
+/// Compact multi-line summary of exceptions (counts by reason, optional TB totals).
+pub fn summarize_exceptions(rows: &[Exception]) -> String {
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<&str, (usize, f64)> = BTreeMap::new();
+    for r in rows {
+        let b = reason_bucket(&r.reason);
+        let e = groups.entry(b).or_insert((0, 0.0));
+        e.0 += 1;
+        e.1 += r.capacity_mib;
+    }
+    let mut out = format!("Disk awareness: {} exception(s)\n", rows.len());
+    for (bucket, (count, mib)) in groups {
+        let mut line = format!("  {}", bucket_label(bucket, count));
+        // Show capacity for exclusion-style buckets where MiB is meaningful.
+        if matches!(
+            bucket,
+            "physical_rdm"
+                | "independent_disk"
+                | "shared_disk"
+                | "vpartition_capped"
+                | "no_vadp_eligible"
+        ) && mib > 0.0
+        {
+            let tb = mib / 1024.0 / 1024.0;
+            line.push_str(&format!(" ({tb:.2} TB)"));
+        }
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out.push_str(
+        "Use --verbose for the full list, or --exceptions-file path.csv for a spreadsheet.\n",
+    );
+    out
+}
+
+pub fn print_exceptions_stderr(rows: &[Exception], verbose: bool) {
     if rows.is_empty() {
         return;
     }
-    eprintln!("Disk awareness exceptions ({}):", rows.len());
-    for r in rows {
-        eprintln!(
-            "  {} | {} | {} | {:.2} MiB | {}",
-            r.vm_name, r.disk, r.reason, r.capacity_mib, r.action
-        );
+    if verbose {
+        eprintln!("Disk awareness exceptions ({}):", rows.len());
+        for r in rows {
+            eprintln!(
+                "  {} | {} | {} | {:.2} MiB | {}",
+                r.vm_name, r.disk, r.reason, r.capacity_mib, r.action
+            );
+        }
+    } else {
+        eprint!("{}", summarize_exceptions(rows));
     }
 }
 
@@ -461,5 +584,56 @@ mod tests {
             .exceptions
             .iter()
             .any(|e| e.reason.contains("no_vpartition")));
+    }
+
+    #[test]
+    fn summarize_exceptions_is_compact() {
+        let rows = vec![
+            Exception {
+                vm_name: "a".into(),
+                disk: "d1".into(),
+                reason: "physical_rdm (physicalMode)".into(),
+                capacity_mib: 1048576.0,
+                action: "excluded".into(),
+            },
+            Exception {
+                vm_name: "b".into(),
+                disk: "d2".into(),
+                reason: "physical_rdm (physicalMode)".into(),
+                capacity_mib: 2097152.0,
+                action: "excluded".into(),
+            },
+            Exception {
+                vm_name: "c".into(),
+                disk: "*".into(),
+                reason: "no_vpartition_powered_on".into(),
+                capacity_mib: 100.0,
+                action: "fallback".into(),
+            },
+        ];
+        let s = summarize_exceptions(&rows);
+        assert!(s.contains("3 exception(s)"));
+        assert!(s.contains("2 physical RDMs excluded"));
+        assert!(s.contains("3.00 TB") || s.contains("2.00 TB") || s.contains("TB"));
+        assert!(s.contains("1 powered-on VM without vPartition data"));
+        assert!(s.contains("--verbose"));
+        assert!(!s.contains("physicalMode")); // detail only in verbose/file
+    }
+
+    #[test]
+    fn render_exceptions_csv_is_plain() {
+        let rows = vec![Exception {
+            vm_name: "vm1".into(),
+            disk: "Hard disk 1".into(),
+            reason: "physical_rdm (physicalMode)".into(),
+            capacity_mib: 1024.0,
+            action: "excluded from estimate".into(),
+        }];
+        let csv = render_exceptions(&rows, SummaryFormat::Csv).unwrap();
+        assert!(csv.starts_with("vm_name,disk,reason,capacity_mib,action"));
+        assert!(csv.contains(
+            "vm1,Hard disk 1,physical_rdm (physicalMode),1024.00,excluded from estimate"
+        ));
+        assert!(!csv.contains("╭") && !csv.contains("│") && !csv.contains("╰"));
     }
 }

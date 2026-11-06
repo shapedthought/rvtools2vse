@@ -126,9 +126,17 @@ fn physical_rdm_excluded_by_default() {
     assert_eq!(n, 4);
     let (ok, _, stderr) = run(&["-r", DISKS, "-s"]);
     assert!(ok);
-    assert!(stderr.contains("physical_rdm"));
-    assert!(stderr.contains("vm_only_p"));
-    assert!(stderr.contains("all_disks_physical_rdm") || stderr.contains("vm_excluded"));
+    assert!(stderr.contains("physical RDM"));
+    assert!(stderr.contains("--verbose") || stderr.contains("--exceptions-file"));
+    let (ok, _, verbose) = run(&["-r", DISKS, "-s", "--verbose"]);
+    assert!(ok);
+    assert!(verbose.contains("physical_rdm"));
+    assert!(verbose.contains("vm_only_p"));
+    assert!(
+        verbose.contains("all_disks_physical_rdm")
+            || verbose.contains("vm_excluded")
+            || verbose.contains("no_vadp_eligible")
+    );
 }
 
 #[test]
@@ -143,9 +151,11 @@ fn keep_rdm_includes_physical() {
 fn virtual_rdm_kept_in_estimate() {
     let (ok, _, stderr) = run(&["-r", DISKS, "-s", "--format", "json"]);
     assert!(ok);
-    // physical exclusions mention Hard disk 2 / vm_only_p, not the virtualMode disk as excluded
-    assert!(stderr.contains("physical_rdm"));
-    assert!(!stderr
+    assert!(stderr.contains("physical RDM"));
+    let (ok, _, verbose) = run(&["-r", DISKS, "-s", "--verbose"]);
+    assert!(ok);
+    assert!(verbose.contains("physical_rdm"));
+    assert!(!verbose
         .lines()
         .any(|l| l.contains("vm_vrdm") && l.contains("excluded")));
     let v: serde_json::Value =
@@ -164,7 +174,10 @@ fn virtual_rdm_kept_in_estimate() {
 fn partition_capped_at_vdisk() {
     let (ok, _, stderr) = run(&["-r", DISKS, "-s"]);
     assert!(ok);
-    assert!(stderr.contains("vpartition_capped_at_vdisk"));
+    assert!(stderr.contains("vPartition capped") || stderr.contains("capped at vDisk"));
+    let (ok, _, verbose) = run(&["-r", DISKS, "-s", "--verbose"]);
+    assert!(ok);
+    assert!(verbose.contains("vpartition_capped_at_vdisk"));
 }
 
 #[test]
@@ -185,6 +198,7 @@ fn exceptions_file_csv() {
     let body = std::fs::read_to_string(&path).unwrap();
     assert!(body.starts_with("vm_name,disk,reason,capacity_mib,action\n"));
     assert!(body.contains("physical_rdm"));
+    assert!(!body.contains("╭") && !body.contains("│"));
     let _ = std::fs::remove_file(&path);
 }
 
@@ -198,7 +212,10 @@ fn independent_disk_excluded_by_default() {
     assert_eq!(n, 5);
     let (ok, _, stderr) = run(&["-r", DISKS2, "-s"]);
     assert!(ok);
-    assert!(stderr.contains("independent_disk"));
+    assert!(stderr.contains("independent disk"));
+    let (ok, _, verbose) = run(&["-r", DISKS2, "-s", "--verbose"]);
+    assert!(ok);
+    assert!(verbose.contains("independent_disk"));
 }
 
 #[test]
@@ -212,9 +229,12 @@ fn keep_independent_restores_capacity() {
 fn shared_disk_counted_once() {
     let (ok, _, stderr) = run(&["-r", DISKS2, "-s", "--format", "json"]);
     assert!(ok);
-    assert!(stderr.contains("shared_disk"));
-    assert!(stderr.contains("counted_once_on_this_vm"));
-    assert!(stderr.contains("deduped_already_counted_on_"));
+    assert!(stderr.contains("shared/multi-writer"));
+    let (ok, _, verbose) = run(&["-r", DISKS2, "-s", "--verbose"]);
+    assert!(ok);
+    assert!(verbose.contains("shared_disk"));
+    assert!(verbose.contains("counted_once_on_this_vm"));
+    assert!(verbose.contains("deduped_already_counted_on_"));
     let v: serde_json::Value =
         serde_json::from_str(&run(&["-r", DISKS2, "-s", "--format", "json"]).1).unwrap();
     let cl2: f64 = v["rows"]
@@ -231,7 +251,10 @@ fn shared_disk_counted_once() {
 fn tools_not_running_falls_back_to_vinfo() {
     let (ok, _, stderr) = run(&["-r", DISKS2, "-s"]);
     assert!(ok);
-    assert!(stderr.contains("tools_unreliable") || stderr.contains("toolsNotRunning"));
+    assert!(stderr.contains("Tools not running") || stderr.contains("tools"));
+    let (ok, _, verbose) = run(&["-r", DISKS2, "-s", "--verbose"]);
+    assert!(ok);
+    assert!(verbose.contains("tools_unreliable") || verbose.contains("toolsNotRunning"));
     let v: serde_json::Value =
         serde_json::from_str(&run(&["-r", DISKS2, "-s", "--format", "json"]).1).unwrap();
     let tools_row = v["rows"]
@@ -248,5 +271,55 @@ fn tools_not_running_falls_back_to_vinfo() {
 fn powered_on_without_vpartition_noted() {
     let (ok, _, stderr) = run(&["-r", DISKS2, "-s"]);
     assert!(ok);
-    assert!(stderr.contains("no_vpartition") || stderr.contains("vm_nopart"));
+    assert!(stderr.contains("without vPartition") || stderr.contains("no_vpartition"));
+    let (ok, _, verbose) = run(&["-r", DISKS2, "-s", "--verbose"]);
+    assert!(ok);
+    assert!(verbose.contains("vm_nopart") || verbose.contains("no_vpartition"));
+}
+
+#[test]
+fn exceptions_file_infers_csv_extension() {
+    let path = std::env::temp_dir().join("rvtools2vse_ex_infer.csv");
+    let _ = std::fs::remove_file(&path);
+    let path_s = path.to_str().unwrap();
+    let (ok, _, stderr) = run(&["-r", DISKS, "-s", "--exceptions-file", path_s]);
+    assert!(ok, "{stderr}");
+    let body = std::fs::read_to_string(&path).unwrap();
+    assert!(body.starts_with("vm_name,disk,reason,capacity_mib,action"));
+    assert!(!body.contains("╭"));
+    // compact summary on stderr by default
+    assert!(stderr.contains("exception(s)"));
+    assert!(stderr.contains("--verbose"));
+    assert!(!stderr.contains("Hard disk 2 | physical_rdm"));
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn exceptions_file_explicit_format_overrides_extension() {
+    let path = std::env::temp_dir().join("rvtools2vse_ex_force.csv");
+    let _ = std::fs::remove_file(&path);
+    let path_s = path.to_str().unwrap();
+    let (ok, _, stderr) = run(&[
+        "-r",
+        DISKS,
+        "-s",
+        "--exceptions-file",
+        path_s,
+        "--format",
+        "json",
+    ]);
+    assert!(ok, "{stderr}");
+    let body = std::fs::read_to_string(&path).unwrap();
+    assert!(body.trim_start().starts_with('['), "{body}");
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn verbose_prints_full_exception_list() {
+    let (ok, _, quiet) = run(&["-r", DISKS2, "-s"]);
+    assert!(ok);
+    assert!(!quiet.contains("independent_disk (independentPersistent)"));
+    let (ok, _, verbose) = run(&["-r", DISKS2, "-s", "--verbose"]);
+    assert!(ok);
+    assert!(verbose.contains("independent_disk (independentPersistent)"));
 }

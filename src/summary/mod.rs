@@ -25,6 +25,32 @@ pub enum SummaryFormat {
     Md,
 }
 
+use std::path::Path;
+
+/// Infer an output format from a file path extension.
+/// `.csv` → Csv, `.json` → Json, `.md`/`.markdown` → Md, anything else → Table.
+pub fn infer_format(path: &Path) -> SummaryFormat {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("csv") => SummaryFormat::Csv,
+        Some("json") => SummaryFormat::Json,
+        Some("md" | "markdown") => SummaryFormat::Md,
+        _ => SummaryFormat::Table,
+    }
+}
+
+/// Explicit `--format` wins; otherwise infer from `path` when writing a file; else Table.
+pub fn resolve_format(explicit: Option<SummaryFormat>, path: Option<&Path>) -> SummaryFormat {
+    if let Some(f) = explicit {
+        return f;
+    }
+    path.map(infer_format).unwrap_or(SummaryFormat::Table)
+}
+
 #[derive(Serialize, Debug, PartialEq)]
 struct Row<'a> {
     datacenter: &'a str,
@@ -199,6 +225,31 @@ mod tests {
         assert!(out.contains("Capacity (TB)"));
         assert!(out.find("DC-B").unwrap() < out.find("DC-A").unwrap());
         assert!(out.contains("10.26"));
+    }
+
+    #[test]
+    fn infer_format_from_extension() {
+        use std::path::Path;
+        assert_eq!(infer_format(Path::new("out.csv")), SummaryFormat::Csv);
+        assert_eq!(infer_format(Path::new("OUT.JSON")), SummaryFormat::Json);
+        assert_eq!(infer_format(Path::new("a.md")), SummaryFormat::Md);
+        assert_eq!(infer_format(Path::new("a.markdown")), SummaryFormat::Md);
+        assert_eq!(infer_format(Path::new("a.txt")), SummaryFormat::Table);
+        assert_eq!(infer_format(Path::new("noext")), SummaryFormat::Table);
+    }
+
+    #[test]
+    fn resolve_format_explicit_wins() {
+        use std::path::Path;
+        assert_eq!(
+            resolve_format(Some(SummaryFormat::Json), Some(Path::new("x.csv"))),
+            SummaryFormat::Json
+        );
+        assert_eq!(
+            resolve_format(None, Some(Path::new("x.csv"))),
+            SummaryFormat::Csv
+        );
+        assert_eq!(resolve_format(None, None), SummaryFormat::Table);
     }
 
     #[test]
