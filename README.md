@@ -97,6 +97,10 @@ Options:
           Plot capacity data in a bar chart
       --anonymize
           Anonymize the data
+      --keep-rdm
+          Keep physical-compatibility RDM capacity in the estimate (excluded by default)
+      --exceptions-file <EXCEPTIONS_FILE>
+          Write disk-awareness exceptions to a file (uses --format)
   -h, --help
           Print help (see more with '--help')
   -V, --version
@@ -121,12 +125,29 @@ Columns read (names must match exactly):
 | ---------- | ------- |
 | vInfo      | `VM`, `Powerstate`, `Datacenter`, `Cluster`, `In Use MiB` |
 | vPartition | `VM`, `Consumed MiB`, `Powerstate` (optional) |
+| vDisk      | `VM`, `Capacity MiB` (or `Capacity MB` with `--legacy`), `Raw Comp. Mode` (optional; needed to detect pRDMs), `Disk`, `Powerstate` (optional) |
 
 If `vPartition` has no `Powerstate` column, a note is printed to stderr and power state comes from the matching vInfo row (partitions only count when they join to an included vInfo VM). If a workbook has no `vPartition` tab, a warning is printed and vInfo capacity is used for that file. VMs with an empty cluster are grouped under `None`.
 
 ### Capacity
 
 By default, the tool sums each VM's vPartition `Consumed` values and uses the lower of that total and the vInfo `In Use` value. `-d/--do-not-use-vpartition` uses vInfo only. Powered-off VMs are excluded unless you pass `-i/--include-powered-off`.
+
+### Disk awareness (vDisk / physical RDMs)
+
+When a workbook has a `vDisk` tab, the tool also:
+
+- Detects **physical-compatibility RDMs** (`Raw Comp. Mode` contains `physicalMode`) and **excludes** their capacity from the estimate by default (VADP/host-based backup cannot snapshot them). Virtual-compatibility RDMs (`virtualMode`) are kept.
+- Caps each VM's guest vPartition sum at the sum of its **eligible** vDisk capacities (non-pRDM disks, or all disks with `--keep-rdm`), so inflated guest figures cannot exceed the backupable virtual disks.
+- Writes a short **exceptions** list to stderr (VM, disk, reason, capacity, action). Use `--exceptions-file <path>` to write the same list with `--format` (`table`/`json`/`csv`/`md`).
+
+```
+--keep-rdm                 # include physical RDM capacity in the estimate
+--exceptions-file out.csv  # with --format csv
+```
+
+If `vDisk` is missing, a note goes to stderr and behaviour matches earlier releases. Independent disks, multi-writer / bus sharing, and Tools-gap heuristics are **not** handled yet (later phases).
+
 
 ### Filtering
 
@@ -198,7 +219,15 @@ rvtools2vse -D ./exports --dc-site-map dc_mapper.json -s --format md
 
 `cargo test` runs the unit tests and the regression tests in `tests/regression.rs`. Those tests use the synthetic workbooks in `testdata/`; regenerate them with `python3 testdata/generate_testdata.py` (needs `openpyxl`).
 
-## Known issues
+## Known issues / later phases
+
+Disk awareness phase 1 only covers physical RDMs and the vPartition-vs-vDisk cap. Still open:
+
+- Independent disks (`independentPersistent` / `independentNonPersistent`) are still counted; Veeam skips them on host-based backup.
+- Shared / multi-writer disks may be double-counted and are not snapshottable via VADP.
+- VMs without VMware Tools still fall back to full vInfo `In Use` with no extra warning beyond a missing vPartition join.
+
+Other:
 
 - If the tool can't find the `vInfo` or `vPartition` tab even though it exists, open the file in Excel, rename the tab, and save it again.
 - With `--anonymize`, the include/exclude filters are compared against the hashed names, so filtering by real DC, cluster or VM names has no effect.

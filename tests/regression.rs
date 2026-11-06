@@ -104,3 +104,81 @@ fn print_json_capacity_matches_summary() {
     assert_eq!(mib / 1048576.0, 3.75);
     assert!(v[0].get("vpartition_capacity").is_none());
 }
+
+const DISKS: &str = "testdata/regression_disks.xlsx";
+
+#[test]
+fn missing_vdisk_tab_is_graceful_and_unchanged() {
+    let (ok, _, stderr) = run(&["-r", BASELINE, "-s", "--format", "csv"]);
+    assert!(ok);
+    assert!(stderr.contains("vDisk sheet not found"));
+    assert_eq!(totals(&["-r", BASELINE]), (3.75, 4));
+}
+
+#[test]
+fn physical_rdm_excluded_by_default() {
+    // vm_vmdk 0.5 + vm_prdm 0.25 + vm_vrdm 0.8 + vm_cap 0.5 = 2.05; vm_only_p excluded
+    let (cap, n) = totals(&["-r", DISKS]);
+    assert!((cap - 2.05).abs() < 1e-6, "got {cap}");
+    assert_eq!(n, 4);
+    let (ok, _, stderr) = run(&["-r", DISKS, "-s"]);
+    assert!(ok);
+    assert!(stderr.contains("physical_rdm"));
+    assert!(stderr.contains("vm_only_p"));
+    assert!(stderr.contains("all_disks_physical_rdm") || stderr.contains("vm_excluded"));
+}
+
+#[test]
+fn keep_rdm_includes_physical() {
+    // + vm_prdm becomes 2.0 (uncapped guest) and vm_only_p 1.0 → 0.5+2.0+0.8+0.5+1.0 = 4.8
+    let (cap, n) = totals(&["-r", DISKS, "--keep-rdm"]);
+    assert!((cap - 4.8).abs() < 1e-6, "got {cap}");
+    assert_eq!(n, 5);
+}
+
+#[test]
+fn virtual_rdm_kept_in_estimate() {
+    let (ok, _, stderr) = run(&["-r", DISKS, "-s", "--format", "json"]);
+    assert!(ok);
+    // physical exclusions mention Hard disk 2 / vm_only_p, not the virtualMode disk as excluded
+    assert!(stderr.contains("physical_rdm"));
+    assert!(!stderr.lines().any(|l| l.contains("vm_vrdm") && l.contains("excluded")));
+    let v: serde_json::Value =
+        serde_json::from_str(&run(&["-r", DISKS, "-s", "--format", "json"]).1).unwrap();
+    let cl2: f64 = v["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["cluster"] == "CL2")
+        .map(|r| r["capacity_tb"].as_f64().unwrap())
+        .sum();
+    assert!((cl2 - 1.3).abs() < 1e-6, "CL2={cl2}");
+}
+
+#[test]
+fn partition_capped_at_vdisk() {
+    let (ok, _, stderr) = run(&["-r", DISKS, "-s"]);
+    assert!(ok);
+    assert!(stderr.contains("vpartition_capped_at_vdisk"));
+}
+
+#[test]
+fn exceptions_file_csv() {
+    let path = std::env::temp_dir().join("rvtools2vse_exceptions_test.csv");
+    let _ = std::fs::remove_file(&path);
+    let path_s = path.to_str().unwrap();
+    let (ok, _, stderr) = run(&[
+        "-r",
+        DISKS,
+        "-s",
+        "--format",
+        "csv",
+        "--exceptions-file",
+        path_s,
+    ]);
+    assert!(ok, "{stderr}");
+    let body = std::fs::read_to_string(&path).unwrap();
+    assert!(body.starts_with("vm_name,disk,reason,capacity_mib,action\n"));
+    assert!(body.contains("physical_rdm"));
+    let _ = std::fs::remove_file(&path);
+}

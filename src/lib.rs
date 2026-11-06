@@ -1,3 +1,4 @@
+mod disk;
 mod excel;
 mod helpers;
 mod inputs;
@@ -21,11 +22,10 @@ use crate::{
     models::{
         cli::Cli,
         new_model::Mapper,
-        rvtools::{Datacenter, Vinfo, Vpartition},
+        rvtools::{Datacenter},
     },
     vse::vse_construct,
 };
-use std::collections::HashMap;
 use summary::SummaryFormat;
 
 pub fn run() -> Result<()> {
@@ -55,52 +55,37 @@ pub fn run() -> Result<()> {
             .for_each(|f| eprintln!("  {}", f.display()));
     }
 
-    let (info_vec, part_vec) = get_excel(&cli)?;
+    let (info_vec, part_vec, disk_vec) = get_excel(&cli)?;
 
     let devisor = 1024_f64.powf(2.0);
 
-    let grouped: Vec<Vpartition> = part_vec
+    let grouped: Vec<crate::models::rvtools::Vpartition> = part_vec
         .into_iter()
         .sorted_by_key(|x| x.vm_name.clone())
         .group_by(|x| x.vm_name.clone())
         .into_iter()
         .map(|(name, group)| {
             let total = group.map(|x| x.capacity).sum();
-            Vpartition {
+            crate::models::rvtools::Vpartition {
                 vm_name: name,
                 capacity: total,
             }
         })
         .collect();
 
-    let mut combined: Vec<Vinfo> = Vec::new();
-    let mut group_map = HashMap::new();
-
-    for (i, j) in grouped.iter().enumerate() {
-        group_map.insert(j.vm_name.clone(), i);
-    }
-
-    if !cli.do_not_use_vpartition {
-        for i in &info_vec {
-            if let Some(&j_idx) = group_map.get(&i.vm_name) {
-                let j = &grouped[j_idx];
-                let low_cap = f64::min(i.capacity, j.capacity);
-
-                let new_st = Vinfo {
-                    vm_name: i.vm_name.clone(),
-                    datacenter: i.datacenter.clone(),
-                    cluster: i.cluster.clone(),
-                    capacity: low_cap,
-                    powerstate: i.powerstate.clone(),
-                    vpartition_capacity: Some(j.capacity),
-                };
-                combined.push(new_st);
-            } else {
-                combined.push(i.clone());
-            }
-        }
-    } else {
-        combined = info_vec.clone()
+    let awareness = disk::apply(
+        &info_vec,
+        &grouped,
+        &disk_vec,
+        !cli.do_not_use_vpartition,
+        cli.keep_rdm,
+    );
+    let combined = awareness.combined;
+    disk::print_exceptions_stderr(&awareness.exceptions);
+    if let Some(path) = &cli.exceptions_file {
+        let rendered = disk::render_exceptions(&awareness.exceptions, cli.format)?;
+        fs::write(path, rendered)?;
+        eprintln!("Exceptions written to: {}", path.display());
     }
 
     let mut datacenters: Vec<Datacenter> = Vec::new();

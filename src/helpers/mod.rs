@@ -56,3 +56,19 @@ impl GetFloat for Data {
         }
     }
 }
+
+/// Best-effort string for optional columns (Raw, modes) that may be Bool/Float/String.
+pub fn as_display_string(cell: &Data) -> String {
+    match cell {
+        Data::String(t) => t.clone(),
+        Data::Bool(b) => b.to_string(),
+        Data::Int(i) => i.to_string(),
+        Data::Float(f) => f.to_string(),
+        Data::Empty => String::new(),
+        _ => String::new(),
+    }
+}
+
+pub fn is_physical_rdm_mode(raw_comp_mode: &str) -> bool {
+    raw_comp_mode.to_ascii_lowercase().contains("physicalmode")
+}
