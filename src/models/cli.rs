@@ -124,6 +124,10 @@ pub struct Cli {
     #[clap(long, value_parser)]
     pub exceptions_file: Option<PathBuf>,
 
+    /// Write the cleaned per-VM and per-disk tables to vms.parquet and disks.parquet in this folder
+    #[clap(long, value_parser)]
+    pub export_parquet: Option<PathBuf>,
+
     /// Bypass reading and writing the parsed workbook cache
     #[clap(long, action, conflicts_with = "refresh_cache")]
     pub no_cache: bool,

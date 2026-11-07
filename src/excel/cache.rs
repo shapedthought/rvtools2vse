@@ -249,6 +249,24 @@ pub(super) fn load(
     refresh: bool,
     verbose: bool,
 ) -> Result<Workbook, XlsxError> {
+    let started = std::time::Instant::now();
+    let (workbook, status) = load_inner(path, no_cache, refresh, verbose)?;
+    if verbose {
+        eprintln!(
+            "Loaded {} in {:.1} ms (cache {status})",
+            path.display(),
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+    Ok(workbook)
+}
+
+fn load_inner(
+    path: &Path,
+    no_cache: bool,
+    refresh: bool,
+    verbose: bool,
+) -> Result<(Workbook, &'static str), XlsxError> {
     let fingerprint = (!no_cache).then(|| Fingerprint::read(path)).flatten();
     let paths = fingerprint.as_ref().map(|f| (sidecar(path), fallback(f)));
     if !refresh {
@@ -258,7 +276,7 @@ pub(super) fn load(
                     if verbose {
                         eprintln!("Cache hit: {} ({})", path.display(), candidate.display());
                     }
-                    return Ok(workbook);
+                    return Ok((workbook, "hit"));
                 }
             }
         }
@@ -273,6 +291,13 @@ pub(super) fn load(
         };
         eprintln!("Cache {reason}: {}", path.display());
     }
+    let status = if no_cache {
+        "bypass"
+    } else if refresh {
+        "refresh"
+    } else {
+        "miss"
+    };
     let mut excel: Xlsx<_> = open_workbook(path)?;
     let mut sheets = [None, None, None];
     for (i, name) in SHEETS.iter().enumerate() {
@@ -323,7 +348,7 @@ pub(super) fn load(
             }
         }
     }
-    Ok(workbook)
+    Ok((workbook, status))
 }
 
 #[cfg(test)]
