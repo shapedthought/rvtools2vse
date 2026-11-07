@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-07
+
 ### Added
 
 - Backup coverage: a stderr `Coverage:` line splits the estimate into image-level (VADP) and "needs an agent or other method" capacity. Kept physical RDMs and independent disks, multi-writer disks and shared-SCSI-bus disks land in the non-VADP group, with a `needs_agent_or_other_method` exception per VM and new `non_vadp_mib` (vms) and `coverage`, `shared_bus`, `raw_lun_id` (disks) parquet columns.
