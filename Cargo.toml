@@ -32,6 +32,9 @@ postcard = { version = "1.1.3", default-features = false, features = ["alloc"] }
 dirs = "6"
 sha2 = "0.10"
 tempfile = "3"
+arrow-array = "60"
+arrow-schema = "60"
+parquet = { version = "60", default-features = false, features = ["arrow", "snap"] }
 
 [profile.release]
 strip = true

@@ -300,6 +300,37 @@ For read-only container inputs, the image's writable home directory provides the
 
 **Timing:** on the largest checked-in fixture, `sample_rvtools.xlsx` (6,868 bytes), 200 alternating release-binary runs had median whole-command times of **1.04 ms cached vs 1.33 ms with `--no-cache`** (about **1.3×**); forced refresh was 1.46 ms. This fixture is tiny, so process startup dominates; real-estate gains depend on workbook size and storage. These are warm-filesystem timings, not cold disk benchmarks. Only xlsx parsing is skipped: sizing and output are still recalculated.
 
+## Parquet export
+
+`--export-parquet <DIR>` writes the cleaned, joined tables (after the UUID join, filters and power-state selection) for pandas or Polars, so analysis does not need to re-read the workbooks:
+
+- `vms.parquet`: `source_file`, `datacenter`, `cluster`, `vm_name`, `vm_uuid`, `powerstate`, `capacity_mib` (the sizing capacity after disk policy), `vpartition_mib`, `tools_status`.
+- `disks.parquet`: one row per vDisk of an exported VM: `source_file`, `datacenter`, `cluster`, `vm_name`, `disk_label`, `disk_uuid`, `capacity_mib`, `disk_mode`, `raw_comp_mode`, `sharing`, `is_physical_rdm`, `is_independent`, `is_shared`, `excluded_by_flags` (excluded by the current `--keep-rdm`/`--keep-independent` policy).
+
+With `--anonymize`, source file names, datacenters, clusters, VM names and UUIDs are hashed exactly as in the other outputs.
+
+```bash
+rvsum -D ./exports --export-parquet ./parquet
+python -c "import pandas as pd; print(pd.read_parquet('parquet/vms.parquet').groupby('source_file').capacity_mib.sum())"
+```
+
+## Benchmarking inside a container
+
+`Containerfile.bench` builds rvsum together with [hyperfine](https://github.com/sharkdp/hyperfine), so nothing runs on the host. Mount the folder of exports read-write so cache files persist next to the workbooks, and quote the commands so `*.xlsx` expands inside the container:
+
+```bash
+podman build -f Containerfile.bench -t rvsum-bench .
+podman run --rm -v "$PWD":/data rvsum-bench --warmup 1 \
+  'rvsum -r /data/*.xlsx -s --no-cache' \
+  'rvsum -r /data/*.xlsx -s'
+```
+
+For a per-file breakdown, run once with `--verbose`; each workbook prints `Loaded <file> in <ms> ms (cache hit|miss|refresh|bypass)`:
+
+```bash
+podman run --rm -v "$PWD":/data --entrypoint sh rvsum-bench -c 'rvsum -r /data/*.xlsx -s --verbose'
+```
+
 ## Full flag reference
 
 Usage: `rvsum [OPTIONS]`. The following entries reproduce **`rvsum --help` exactly**, grouped by task rather than declaration order. Regression tests check that every flag and its help text stays in sync. `rvsum -h` gives the shorter help form.
@@ -398,6 +429,9 @@ Usage: `rvsum [OPTIONS]`. The following entries reproduce **`rvsum --help` exact
 
       --exceptions-file <EXCEPTIONS_FILE>
           Write disk-awareness exceptions to a file (format from --format or file extension)
+
+      --export-parquet <EXPORT_PARQUET>
+          Write the cleaned per-VM and per-disk tables to vms.parquet and disks.parquet in this folder
 
       --verbose
           Print the full disk-awareness exceptions list to stderr (default is a compact summary). Also report parsed workbook cache activity. Note: short `-v` is already `--vm-table-print`

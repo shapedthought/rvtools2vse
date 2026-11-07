@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `--export-parquet <DIR>` writes `vms.parquet` and `disks.parquet` (cleaned, UUID-joined, filtered tables with a `source_file` column) for pandas/Polars. Honors `--anonymize`.
+- `--verbose` prints per-file load time with the cache result (`hit`, `miss`, `refresh`, `bypass`).
+- `Containerfile.bench` (rvsum + hyperfine) and README guidance for benchmarking several RVTools files inside a container.
 - Automatic compact binary parse cache for the used vInfo, vPartition and vDisk columns, including UUIDs. Sidecar files fall back to the OS cache directory for read-only exports; cache failures never prevent normal parsing.
 - `--no-cache` bypasses reads and writes; `--refresh-cache` rebuilds. `--verbose` reports cache activity; normal output stays unchanged. Cache keys validate source path, size, mtime, schema and application version; damaged entries are rebuilt.
 - Cache regressions cover output equivalence, option-independent rows, changed inputs, corrupt/versioned entries, read-only fallback and disabled caching. README documents inventory-data privacy, container persistence and a small-fixture timing comparison.

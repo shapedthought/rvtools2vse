@@ -1,0 +1,15 @@
+# Benchmark image: rvsum + hyperfine, so nothing runs on the host.
+#   podman build -f Containerfile.bench -t rvsum-bench .
+#   podman run --rm -v "$PWD":/data rvsum-bench --warmup 1 \
+#     'rvsum -r /data/*.xlsx -s --no-cache' 'rvsum -r /data/*.xlsx -s'
+FROM docker.io/library/rust:1-slim AS build
+WORKDIR /src
+COPY . .
+RUN cargo build --release --locked \
+ && cargo install hyperfine --locked --root /out
+
+FROM docker.io/library/debian:stable-slim
+COPY --from=build /src/target/release/rvsum /usr/local/bin/rvsum
+COPY --from=build /out/bin/hyperfine /usr/local/bin/hyperfine
+WORKDIR /data
+ENTRYPOINT ["hyperfine"]

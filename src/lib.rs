@@ -2,6 +2,7 @@
 
 mod disk;
 mod excel;
+mod export;
 mod helpers;
 mod inputs;
 mod models;
@@ -89,6 +90,24 @@ pub fn run() -> Result<()> {
         },
     );
     let mut awareness = awareness;
+    if let Some(dir) = &cli.export_parquet {
+        let (vms, disks) = export::write(
+            dir,
+            &awareness.combined,
+            &disk_vec,
+            &export::Options {
+                files: &cli.rvtools_files,
+                anonymize: cli.anonymize,
+                keep_rdm: cli.keep_rdm,
+                keep_independent: cli.keep_independent,
+            },
+        )?;
+        eprintln!(
+            "Parquet written to: {} and {}",
+            vms.display(),
+            disks.display()
+        );
+    }
     if cli.anonymize {
         // Filters and joins above used real names; hash only what is reported.
         awareness
@@ -341,6 +360,6 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-fn anon(item: &str) -> String {
+pub(crate) fn anon(item: &str) -> String {
     fastmurmur3::hash(item.as_bytes()).to_string()
 }
