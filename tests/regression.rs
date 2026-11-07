@@ -611,3 +611,51 @@ fn anonymize_applies_filters_and_site_maps_to_real_names() {
     );
     std::fs::remove_dir_all(dir).ok();
 }
+
+const COVERAGE: &str = "testdata/regression_coverage.xlsx";
+
+#[test]
+fn backup_coverage_split_and_exceptions() {
+    // Default: the shared physical RDM is excluded; the multi-writer disk is
+    // counted once (on rac-1) and is the only non-VADP capacity (300 GiB).
+    let (ok, _, stderr) = run(&["-r", COVERAGE, "--no-cache"]);
+    assert!(ok, "{stderr}");
+    assert!(
+        stderr.contains("Coverage: 1.72 TB image-level (VADP); 0.29 TB needs an agent or other method (1 VM(s))"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("1 disk on a shared SCSI bus"), "{stderr}");
+    assert!(stderr.contains("1 VM with possible in-guest storage (heuristic)"));
+    assert!(stderr.contains("1 VM without VMware Tools installed"));
+    assert!(stderr.contains("1 powered-on VM with VMware Tools not running"));
+    assert!(stderr.contains("1 VM with outdated VMware Tools"));
+
+    // --keep-rdm: the empty-UUID RDM shared by both nodes is grouped by LUN and
+    // counted once, in the non-VADP group.
+    let (ok, _, stderr) = run(&["-r", COVERAGE, "--no-cache", "--keep-rdm", "--verbose"]);
+    assert!(ok, "{stderr}");
+    assert!(
+        stderr.contains("0.49 TB needs an agent or other method (2 VM(s))"),
+        "{stderr}"
+    );
+    assert_eq!(
+        stderr.matches("shared_lun_group_1 (2 node(s))").count(),
+        2,
+        "{stderr}"
+    );
+    assert!(stderr.contains("filer | * | possible_in_guest_storage"));
+    // Kubelet mount noise is not in-guest storage; clones are not shared disks.
+    assert!(!stderr.contains("k8s-worker | * | possible_in_guest_storage"));
+    assert!(!stderr.contains("clone-1 | Hard disk 1 | shared_disk"));
+    assert!(!stderr.contains("clone-2 | Hard disk 1 | shared_disk"));
+    // vTools overrides the vInfo Tools column (all toolsOk there).
+    assert!(stderr.contains("node-b | * | vmware_tools (toolsOld)"));
+
+    // Clones keep their own capacity: 10 VMs in the estimate.
+    assert_eq!(totals(&["-r", COVERAGE, "--no-cache"]).1, 10);
+
+    // A higher threshold silences the heuristic.
+    let (ok, _, stderr) = run(&["-r", COVERAGE, "--no-cache", "--guest-gap-min-gib", "5000"]);
+    assert!(ok);
+    assert!(!stderr.contains("in-guest storage"), "{stderr}");
+}

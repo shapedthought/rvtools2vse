@@ -61,6 +61,7 @@ pub fn write(
             Field::new("capacity_mib", DataType::Float64, false),
             Field::new("vpartition_mib", DataType::Float64, true),
             Field::new("tools_status", DataType::Utf8, true),
+            Field::new("non_vadp_mib", DataType::Float64, false),
         ])),
         vec![
             s(vms.iter().map(|v| source(&v.vm_key)).collect()),
@@ -81,6 +82,7 @@ pub fn write(
             f(vms.iter().map(|v| v.capacity).collect()),
             of(vms.iter().map(|v| v.vpartition_capacity).collect()),
             os(vms.iter().map(|v| v.tools_status.clone()).collect()),
+            f(vms.iter().map(|v| v.non_vadp_capacity).collect()),
         ],
     )?;
 
@@ -106,6 +108,9 @@ pub fn write(
             Field::new("is_independent", DataType::Boolean, false),
             Field::new("is_shared", DataType::Boolean, false),
             Field::new("excluded_by_flags", DataType::Boolean, false),
+            Field::new("shared_bus", DataType::Utf8, false),
+            Field::new("raw_lun_id", DataType::Utf8, false),
+            Field::new("coverage", DataType::Utf8, false),
         ])),
         vec![
             s(disks.iter().map(|(d, _)| source(&d.vm_key)).collect()),
@@ -135,6 +140,27 @@ pub fn write(
                 .map(|(d, _)| {
                     (d.is_physical_rdm && !opts.keep_rdm)
                         || (d.is_independent && !opts.keep_independent)
+                })
+                .collect()),
+            s(disks.iter().map(|(d, _)| d.shared_bus.clone()).collect()),
+            s(disks
+                .iter()
+                .map(|(d, _)| {
+                    if d.raw_lun_id.is_empty() {
+                        String::new()
+                    } else {
+                        hide(&d.raw_lun_id)
+                    }
+                })
+                .collect()),
+            s(disks
+                .iter()
+                .map(|(d, _)| {
+                    if d.is_non_vadp() {
+                        "agent_or_other".to_string()
+                    } else {
+                        "image_level".to_string()
+                    }
                 })
                 .collect()),
         ],

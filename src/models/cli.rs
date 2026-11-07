@@ -120,6 +120,14 @@ pub struct Cli {
     #[clap(long, action, default_value_t = false)]
     pub keep_independent: bool,
 
+    /// Flag possible in-guest storage when guest file systems exceed vDisks by this percentage
+    #[clap(long, value_parser, default_value_t = 10.0)]
+    pub guest_gap_threshold: f64,
+
+    /// Minimum gap in GiB for the in-guest storage heuristic
+    #[clap(long, value_parser, default_value_t = 50.0)]
+    pub guest_gap_min_gib: f64,
+
     /// Write disk-awareness exceptions to a file (format from --format or file extension)
     #[clap(long, value_parser)]
     pub exceptions_file: Option<PathBuf>,

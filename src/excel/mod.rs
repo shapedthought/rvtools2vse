@@ -3,8 +3,8 @@ use calamine::{Data, Range, XlsxError};
 
 mod cache;
 use helpers::{
-    as_display_string, is_independent_disk_mode, is_physical_rdm_mode, is_shared_disk_mode,
-    ColPosition, GetFloat, GetString,
+    as_display_string, is_independent_disk_mode, is_physical_rdm_mode, is_shared_bus_mode,
+    is_shared_disk_mode, ColPosition, GetFloat, GetString,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -110,6 +110,7 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                 } else {
                     instance_uuid.clone()
                 },
+                non_vadp_capacity: 0.0,
             });
             file_ids.push((key, instance_uuid, bios_uuid));
         }
@@ -146,6 +147,30 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
         }
 
         let index = JoinIndex::new(&info_vec_file, &file_ids);
+
+        // vTools carries the authoritative Tools status; vInfo `Tools` is the fallback.
+        if let Ok(tools) = excel.worksheet_range("vTools") {
+            if let (Ok(vm_col), Ok(status_col)) =
+                (tools.get_col_pos("VM"), tools.get_col_pos("Tools"))
+            {
+                let tool_ids = IdColumns::find(&tools);
+                let mut status: HashMap<String, String> = HashMap::new();
+                for row in tools.rows().skip(1) {
+                    let t = as_display_string(&row[status_col]);
+                    if t.trim().is_empty() || t == "None" {
+                        continue;
+                    }
+                    let name = as_display_string(&row[vm_col]);
+                    let (inst, bios) = tool_ids.read(row);
+                    status.insert(index.resolve(i, &inst, &bios, &name), t);
+                }
+                for v in info_vec_file.iter_mut() {
+                    if let Some(t) = status.remove(&v.vm_key) {
+                        v.tools_status = Some(t);
+                    }
+                }
+            }
+        }
         info_vec.extend(info_vec_file);
 
         // calamine >= 0.20 returns Err(WorksheetNotFound) instead of None for a
@@ -188,6 +213,14 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                 };
 
                 let part_cap_column = partition.get_col_pos(consumed_string)?;
+                let size_string = if cli.legacy {
+                    "Capacity MB"
+                } else {
+                    "Capacity MiB"
+                };
+                let part_size_column = partition.get_col_pos(size_string).ok();
+                let part_key_column = partition.get_col_pos("Disk Key").ok();
+                let part_mount_column = partition.get_col_pos("Disk").ok();
                 let part_ids = IdColumns::find(&partition);
                 for row in partition.rows().enumerate().skip(1) {
                     if let Some(col) = part_power_column {
@@ -218,6 +251,15 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                         vm_key: index.resolve(i, &inst, &bios, vm_name),
                         vm_name: vm_name.to_string(),
                         capacity: *cap,
+                        size: part_size_column
+                            .and_then(|c| row.1[c].get_float_value(String::new(), 0).ok())
+                            .unwrap_or(0.0),
+                        disk_key: part_key_column
+                            .map(|c| clean_text(&row.1[c]))
+                            .unwrap_or_default(),
+                        mount: part_mount_column
+                            .map(|c| clean_text(&row.1[c]))
+                            .unwrap_or_default(),
                     })
                 }
             }
@@ -267,6 +309,9 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                     .ok()
                     .or_else(|| disk.get_col_pos("Sharing mode").ok());
                 let uuid_column = find_col(&disk, &["Disk UUID"]);
+                let shared_bus_column = find_col(&disk, &["Shared Bus"]);
+                let lun_column = find_col(&disk, &["Raw LUN ID"]);
+                let sdk_column = find_col(&disk, &["VI SDK Server"]);
                 let disk_ids = IdColumns::find(&disk);
 
                 for row in disk.rows().enumerate().skip(1) {
@@ -325,6 +370,9 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                         disk_uuid
                     };
 
+                    let shared_bus = shared_bus_column
+                        .map(|c| clean_text(&row.1[c]))
+                        .unwrap_or_default();
                     let (inst, bios) = disk_ids.read(row.1);
                     disk_vec.push(Vdisk {
                         vm_key: index.resolve(i, &inst, &bios, vm_name),
@@ -337,6 +385,14 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                         is_physical_rdm: is_physical_rdm_mode(&raw_comp),
                         is_independent: is_independent_disk_mode(&disk_mode),
                         is_shared: is_shared_disk_mode(&sharing),
+                        is_shared_bus: is_shared_bus_mode(&shared_bus),
+                        shared_bus,
+                        raw_lun_id: lun_column
+                            .map(|c| clean_text(&row.1[c]))
+                            .unwrap_or_default(),
+                        vi_sdk: sdk_column
+                            .map(|c| clean_text(&row.1[c]))
+                            .unwrap_or_default(),
                     });
                 }
             }
@@ -355,6 +411,17 @@ fn find_col(range: &Range<Data>, names: &[&str]) -> Option<usize> {
             _ => false,
         })
     })
+}
+
+/// Trimmed display string; empty for blank or "None" cells.
+fn clean_text(d: &Data) -> String {
+    let s = as_display_string(d);
+    let s = s.trim();
+    if s.eq_ignore_ascii_case("none") {
+        String::new()
+    } else {
+        s.to_string()
+    }
 }
 
 fn clean_id(d: &Data) -> String {

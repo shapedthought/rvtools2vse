@@ -10,14 +10,14 @@ use std::{
 };
 
 // Bump whenever the selected columns or their interpretation changes.
-const SCHEMA: u32 = 1;
+const SCHEMA: u32 = 2;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAGIC: &[u8] = b"RVSUMCACHE\x01";
 const MAX_BYTES: u64 = 512 * 1024 * 1024;
-const SHEETS: [&str; 3] = ["vInfo", "vPartition", "vDisk"];
+const SHEETS: [&str; 4] = ["vInfo", "vPartition", "vDisk", "vTools"];
 
 pub(super) struct Workbook {
-    sheets: [Option<Range<Data>>; 3],
+    sheets: [Option<Range<Data>>; 4],
 }
 
 impl Workbook {
@@ -56,7 +56,7 @@ struct Entry {
     schema: u32,
     version: String,
     fingerprint: Fingerprint,
-    sheets: [Option<Sheet>; 3],
+    sheets: [Option<Sheet>; 4],
 }
 
 #[derive(Serialize, Deserialize)]
@@ -152,6 +152,10 @@ fn project(range: Range<Data>) -> Range<Data> {
         "SMBIOS UUID",
         "BIOS UUID",
         "UUID",
+        "Shared Bus",
+        "Raw LUN ID",
+        "VI SDK Server",
+        "Disk Key",
     ];
     let Some(header) = range.rows().next() else {
         return range;
@@ -220,7 +224,7 @@ fn read(path: &Path, fingerprint: &Fingerprint) -> Option<Workbook> {
     {
         return None;
     }
-    let mut sheets = [None, None, None];
+    let mut sheets = [None, None, None, None];
     for (i, sheet) in entry.sheets.into_iter().enumerate() {
         sheets[i] = match sheet {
             Some(sheet) => Some(sheet.decode()?),
@@ -299,7 +303,7 @@ fn load_inner(
         "miss"
     };
     let mut excel: Xlsx<_> = open_workbook(path)?;
-    let mut sheets = [None, None, None];
+    let mut sheets = [None, None, None, None];
     for (i, name) in SHEETS.iter().enumerate() {
         sheets[i] = match excel.worksheet_range(name) {
             Ok(range) => Some(project(range)),
@@ -367,7 +371,7 @@ mod tests {
                 schema,
                 version: version.to_string(),
                 fingerprint: Fingerprint::read(&source).unwrap(),
-                sheets: [None, None, None],
+                sheets: [None, None, None, None],
             };
             let payload = postcard::to_allocvec(&entry).unwrap();
             let mut bytes = MAGIC.to_vec();

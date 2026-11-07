@@ -159,9 +159,33 @@ When the same VM name appears on more than one vInfo record, each record is repo
 | Shared / multi-writer disk | Eligible provisioned capacity counted once, allocated to the first eligible VM in name order | Identified by `Disk UUID` (case/whitespace normalised), or disk label plus size if the UUID is missing. Duplicate rows on the owning VM are also deduplicated. |
 | VM with only policy-excluded disks | VM omitted from capacity **and VM count** | A VM with only shared disks already owned elsewhere remains in the count at zero capacity. |
 | vInfo `Tools` = `toolsNotInstalled` / `toolsNotRunning` | Ignore guest partition data and fall back to vInfo | `toolsOld` and unknown/missing Tools states do not force this fallback. |
+| Disk on a SCSI controller with `Shared Bus` = `physicalSharing` / `virtualSharing` | Counted (once per shared LUN/UUID) and reported as `shared_scsi_bus` | WSFC-style storage that VADP cannot snapshot; see [backup coverage](#backup-coverage). Physical RDMs without a `Disk UUID` are grouped by `Raw LUN ID` within the vCenter. An empty `Shared Bus` is treated as unknown, not shared. |
+| vTools / vInfo `Tools` = `toolsNotInstalled`, `toolsNotRunning` (powered on) or `toolsOld` | Reported as `vmware_tools` exceptions | The dedicated `vTools` sheet is used when present, otherwise vInfo `Tools`. |
 | Powered-on VM without vPartition rows | Use vInfo and report a diagnostic | This can be stale/missing guest information; inspect before trusting the estimate. |
 
 A disk can be both physical RDM and independent: **both** keep flags are needed to override both exclusion policies. With partial disk exclusions and no usable guest data, the vInfo fallback is not reduced proportionally. Shared-disk deduplication limits eligible disk capacity; it cannot allocate guest usage precisely and does not fully correct a mixed-disk VM on the vInfo fallback path.
+
+## Backup coverage
+
+Every run with vDisk data ends with a coverage line on stderr, splitting the estimate into what image-level (VADP) backup can protect and what needs an agent or another method:
+
+```text
+Coverage: 12.34 TB image-level (VADP); 1.20 TB needs an agent or other method (3 VM(s))
+```
+
+A disk is **non-VADP** when it is a physical-compatibility RDM, an independent disk, a multi-writer disk, or sits on a shared SCSI bus. Excluded disks are not in the estimate at all; disks kept with `--keep-rdm` / `--keep-independent`, multi-writer disks and shared-bus disks count in the estimate but land in the non-VADP group. Each VM with non-VADP capacity gets a `needs_agent_or_other_method` exception, capped at the VM's estimate.
+
+Coverage checks:
+
+| Exception reason | Meaning |
+| --- | --- |
+| `shared_scsi_bus (physicalSharing)` | Disk on a bus-sharing controller (WSFC-style). The action names a `shared_lun_group_N` so cluster nodes sharing the same LUN can be matched up. The storage is counted once. |
+| `possible_in_guest_storage (heuristic)` | Guest file systems exceed the VM's provisioned vDisks by more than `--guest-gap-threshold` percent **and** `--guest-gap-min-gib` GiB (defaults 10% and 50 GiB), suggesting in-guest iSCSI/NFS/SMB volumes that only an agent can back up. Container-runtime mounts (kubelet, containers, overlay, `/run`, ...) are ignored and repeated views of the same file system are counted once. This is a heuristic: verify before quoting. |
+| `vmware_tools (toolsNotInstalled)` | No application-aware processing or guest indexing is possible. |
+| `vmware_tools (toolsNotRunning)` | Powered-on VM: application-aware processing and guest indexing will fail until Tools run. |
+| `vmware_tools (toolsOld)` | Outdated Tools can break quiescing and application-aware processing. |
+
+Cloned VMs that share a `Disk UUID` without multi-writer or bus sharing are kept separate; only real shared storage is de-duplicated.
 
 ## Exceptions: summary, verbose and files
 
@@ -304,8 +328,8 @@ For read-only container inputs, the image's writable home directory provides the
 
 `--export-parquet <DIR>` writes the cleaned, joined tables (after the UUID join, filters and power-state selection) for pandas or Polars, so analysis does not need to re-read the workbooks:
 
-- `vms.parquet`: `source_file`, `datacenter`, `cluster`, `vm_name`, `vm_uuid`, `powerstate`, `capacity_mib` (the sizing capacity after disk policy), `vpartition_mib`, `tools_status`.
-- `disks.parquet`: one row per vDisk of an exported VM: `source_file`, `datacenter`, `cluster`, `vm_name`, `disk_label`, `disk_uuid`, `capacity_mib`, `disk_mode`, `raw_comp_mode`, `sharing`, `is_physical_rdm`, `is_independent`, `is_shared`, `excluded_by_flags` (excluded by the current `--keep-rdm`/`--keep-independent` policy).
+- `vms.parquet`: `source_file`, `datacenter`, `cluster`, `vm_name`, `vm_uuid`, `powerstate`, `capacity_mib` (the sizing capacity after disk policy), `vpartition_mib`, `tools_status`, `non_vadp_mib` (the part of `capacity_mib` that needs an agent or other method).
+- `disks.parquet`: one row per vDisk of an exported VM: `source_file`, `datacenter`, `cluster`, `vm_name`, `disk_label`, `disk_uuid`, `capacity_mib`, `disk_mode`, `raw_comp_mode`, `sharing`, `is_physical_rdm`, `is_independent`, `is_shared`, `excluded_by_flags` (excluded by the current `--keep-rdm`/`--keep-independent` policy), `shared_bus`, `raw_lun_id`, `coverage` (`image_level` or `agent_or_other`, independent of the keep flags).
 
 With `--anonymize`, source file names, datacenters, clusters, VM names and UUIDs are hashed exactly as in the other outputs.
 
@@ -391,6 +415,16 @@ Usage: `rvsum [OPTIONS]`. The following entries reproduce **`rvsum --help` exact
 
       --keep-independent
           Keep independent-mode disk capacity in the estimate (excluded by default)
+
+      --guest-gap-threshold <GUEST_GAP_THRESHOLD>
+          Flag possible in-guest storage when guest file systems exceed vDisks by this percentage
+          
+          [default: 10]
+
+      --guest-gap-min-gib <GUEST_GAP_MIN_GIB>
+          Minimum gap in GiB for the in-guest storage heuristic
+          
+          [default: 50]
 ```
 
 ### Grouping and site maps
@@ -490,7 +524,7 @@ The old Veeam Size Estimator (VSE) is defunct, but its export remains available 
 - **Overlapping exports:** the same VM in two input files is counted twice. It is flagged as `duplicate_vm_name` with `same_uuid_in_multiple_records_check_overlapping_exports` when UUIDs are present. Duplicate *paths* are removed, not duplicate inventory records. Exports without UUID columns join by name, which is ambiguous when names repeat.
 - **Guest data quality:** missing/stale Tools or vPartition rows can make the vInfo fallback overestimate guest data. Missing vDisk metadata can prevent exclusions/deduplication. Partial exclusions and shared disks cannot be allocated precisely without usable guest data.
 - **Shared disks without UUIDs:** the disk-label-plus-size fallback is ambiguous and can merge unrelated disks. Shared allocation is deterministic by VM name, not by actual ownership or guest usage.
-- **Backup coverage:** controller-level SCSI `SharedBus` is not read. In-guest iSCSI/raw volumes appearing only in vPartition are not specially classified. The dedicated `vTools` sheet is not read; only vInfo `Tools` is used. Keeping an RDM/independent disk in the estimate does not make it VADP-backupable.
+- **Backup coverage:** the in-guest storage check is a capacity heuristic and can miss volumes or flag guests whose partition data is stale. Exports without a `Shared Bus` column cannot detect shared-bus disks. Keeping an RDM/independent disk in the estimate does not make it VADP-backupable; it is reported in the non-VADP group instead.
 - **Workbook compatibility:** only the named RVTools `.xlsx` sheets/columns are supported. If a present sheet cannot be found, try opening and re-saving the workbook in Excel with the correct tab name.
 - **Site maps:** unmatched datacenters are dropped and overlapping substring matches can double-count. See [site maps](#site-maps).
 

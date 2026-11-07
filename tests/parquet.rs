@@ -131,3 +131,35 @@ fn verbose_reports_per_file_load_time() {
     assert!(go().contains("ms (cache miss)"));
     assert!(go().contains("ms (cache hit)"));
 }
+
+#[test]
+fn coverage_columns_mark_non_vadp_disks() {
+    let dir = TempDir::new().unwrap();
+    let out_dir = dir.path().join("pq");
+    let out = Command::new(env!("CARGO_BIN_EXE_rvsum"))
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args(["-r", "testdata/regression_coverage.xlsx", "--no-cache"])
+        .arg("--export-parquet")
+        .arg(&out_dir)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let disks = read(&out_dir.join("disks.parquet"));
+    let vms = strings(&disks, "vm_name");
+    let labels = strings(&disks, "disk_label");
+    let coverage = strings(&disks, "coverage");
+    let bus = strings(&disks, "shared_bus");
+    for i in 0..vms.len() {
+        let expect = if labels[i] == "Hard disk 2" {
+            "agent_or_other"
+        } else {
+            "image_level"
+        };
+        assert_eq!(coverage[i], expect, "{} {}", vms[i], labels[i]);
+        if vms[i].starts_with("node-") && labels[i] == "Hard disk 2" {
+            assert_eq!(bus[i], "physicalSharing");
+        }
+    }
+    let vm_batch = read(&out_dir.join("vms.parquet"));
+    assert!(vm_batch.column_by_name("non_vadp_mib").is_some());
+}

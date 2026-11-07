@@ -58,6 +58,7 @@ pub fn run() -> Result<()> {
 
     let devisor = 1024_f64.powf(2.0);
 
+    let guest_parts = part_vec.clone();
     let grouped: Vec<crate::models::rvtools::Vpartition> = part_vec
         .into_iter()
         .sorted_by_key(|x| x.vm_key.clone())
@@ -75,6 +76,9 @@ pub fn run() -> Result<()> {
                 vm_name: name,
                 vm_key: key,
                 capacity: total,
+                size: 0.0,
+                disk_key: String::new(),
+                mount: String::new(),
             }
         })
         .collect();
@@ -90,6 +94,20 @@ pub fn run() -> Result<()> {
         },
     );
     let mut awareness = awareness;
+    if !disk_vec.is_empty() {
+        awareness.exceptions.extend(disk::guest_gap_exceptions(
+            &awareness.combined,
+            &guest_parts,
+            &disk_vec,
+            disk::GuestGap {
+                percent: cli.guest_gap_threshold,
+                min_gib: cli.guest_gap_min_gib,
+            },
+        ));
+    }
+    awareness
+        .exceptions
+        .extend(disk::tools_exceptions(&awareness.combined));
     if let Some(dir) = &cli.export_parquet {
         let (vms, disks) = export::write(
             dir,
@@ -116,6 +134,9 @@ pub fn run() -> Result<()> {
             .for_each(|e| e.vm_name = anon(&e.vm_name));
     }
     disk::print_exceptions_stderr(&awareness, cli.verbose);
+    if !disk_vec.is_empty() {
+        eprint!("{}", disk::coverage_summary(&awareness.combined));
+    }
     let mut combined = awareness.combined;
     if let Some(path) = &cli.exceptions_file {
         let fmt = summary::resolve_format(cli.format, Some(path.as_path()));
