@@ -7,6 +7,11 @@ pub struct Vinfo {
     pub cluster: String,
     pub capacity: f64,
     pub powerstate: String,
+    /// Optional placement and guest OS for the customer action report.
+    #[serde(skip)]
+    pub host: String,
+    #[serde(skip)]
+    pub os: String,
     /// Summed vPartition consumed capacity (MiB) when the VM joined to vPartition.
     /// Not serialized so `--print-json` output is unchanged.
     #[serde(skip)]
