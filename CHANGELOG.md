@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs
+
+- README: added a plain-English "Why some disks are excluded" section covering each exclusion and coverage flag, a worked Coverage example and a glossary, with links from the top of the README, backup coverage and exceptions sections.
+
 ## [1.3.0] - 2026-11-07
 
 ### Added
