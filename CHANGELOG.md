@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `--action-report FILE`: a customer-facing row per actionable VM, prioritizing non-image-backupable storage, VMware Tools fixes and guest-storage checks. Includes placement, plain-English recommendations, affected disks/capacities and shared-storage peers; sizing-only notes remain in the unchanged exceptions report.
+- CSV, JSON, Markdown and Excel action reports (Summary plus category sheets), stderr category counts, filter/site-map support and inventory-name anonymization. Synthetic round-trip regressions cover formats and classification.
+
+
 ## [1.3.0] - 2026-11-07
 
 ### Added

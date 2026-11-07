@@ -469,6 +469,9 @@ Usage: `rvsum [OPTIONS]`. The following entries reproduce **`rvsum --help` exact
       --summary-file <SUMMARY_FILE>
           Write the --show-info summary to a file instead of stdout (implies --show-info)
 
+      --action-report <ACTION_REPORT>
+          Write one customer action row per VM (.csv, .json, .md or .xlsx)
+
       --exceptions-file <EXCEPTIONS_FILE>
           Write disk-awareness exceptions to a file (format from --format or file extension)
 
@@ -554,3 +557,78 @@ cargo audit
 ```
 
 CI tests **Rust 1.88 and stable**, checks formatting and Clippy warnings, audits dependencies, and smoke-tests the `rvsum` binary. Regression tests use synthetic workbooks in `testdata/`; regenerate them with `python3 testdata/generate_testdata.py` (requires Python `openpyxl`). Tagged releases build the platform binaries and the multi-architecture GHCR image. See [CI](.github/workflows/ci.yml), [release workflow](.github/workflows/release.yml) and [MIT license](LICENSE).
+
+
+## Customer action report
+
+Use this when you need to explain **which VMs need a different backup approach**:
+
+```bash
+rvsum -D ./exports --action-report customer-actions.xlsx
+# Or choose customer-actions.csv, .json or .md
+```
+
+This is separate from `--exceptions-file`, which remains the detailed technical
+log. There is one row per actionable VM in each input workbook, including VMs
+whose disks are completely excluded from the sizing estimate. Normal VMs and
+sizing-only notes (capacity caps, fallbacks and shared-disk counting) are omitted.
+The highest-priority category wins, but **all issues and recommendations** stay
+on the row:
+
+1. **Not protected by image-level backup** — independent disks, physical RDMs,
+   multi-writer disks or disks on physical/virtual shared SCSI buses. These disks
+   need a guest agent, cluster-aware job, application-native backup or validated
+   storage integration. Shared bus configurations can prevent snapshots of the
+   VM itself: check protection of the remaining disks too.
+2. **Fix before backup** — missing or outdated VMware Tools, or stopped Tools
+   on a running VM. Tools-based processing, indexing and quiescing may be lost;
+   network-based guest processing can sometimes work independently. Fix and test
+   the actual backup job rather than assuming all guest processing is impossible.
+3. **Check with customer** — suspected guest-mounted storage (a capacity-gap
+   heuristic, not proof) or no partition data for a running VM.
+
+Invented, shortened example (the actual report includes placement and disk details):
+
+| VM | Category | Affected disks | Scope | In estimate | Next step |
+| --- | --- | --- | --- | --- | --- |
+| example-db-a | Not protected by image-level backup | Hard disk 2 | Some attached disks | partial | Confirm cluster type; use a cluster-aware guest-agent job |
+| example-web-a | Fix before backup | | VM-level check | yes | Start VMware Tools and test guest processing |
+| example-app-a | Check with customer | | VM-level check | yes | Confirm guest mounts and collect partition data |
+
+Columns include category, VM, datacenter, cluster, host, power state, OS,
+plain-English issues, recommended approach, affected disk labels, affected and
+VM-total provisioned GB, inclusion in the estimate, shared-storage peer VM names,
+source workbook basename and scope. GB columns use **GiB (1024 MiB)** to match
+rvsum sizing conventions. Only affected **attached disks** contribute to affected
+capacity; Tools/missing-data issues do not invent disk capacity, and possible
+in-guest storage cannot be reliably sized from this export. No vDisk rows means
+zero known provisioned capacity, not proof of zero storage.
+
+`in_estimate` is `yes`/`partial`/`no` according to disk-exclusion flags; it is not a
+backupability or used-capacity measure. Shared disk attachments are shown on each
+VM even when sizing counts them once elsewhere. **Do not sum report capacities**
+to derive site totals. `--keep-rdm` and `--keep-independent` change inclusion,
+not protection. Peer names are grouped by explicit sharing plus UUID or LUN
+identity, scoped to vCenter (or input file if vCenter is absent); no identities
+means no guessed peers. This identifies candidate peers, not a proven cluster type.
+
+All normal input filters apply, including powered-off exclusion by default.
+Site maps relabel matching datacenters to the first matching site group; original
+clusters are retained so you can locate the VM, and unmatched datacenters remain
+visible. Flatten options affect sizing summaries, not per-VM placement. Partition
+data is still inspected for this report with `--do-not-use-vpartition`, which only
+opts out of using it for sizing.
+
+`--anonymize` hashes VM, datacenter, cluster, host, peer and source-file names with
+the same function as other outputs (and also hashes affected disk labels). As in
+summaries, user-defined site-map group labels are retained. Without that flag the
+report contains customer inventory: store/share it privately. No report format
+redacts OS descriptions, so review custom OS strings and your site labels before
+external sharing. CSV neutralizes leading spreadsheet-formula characters; XLSX
+writes inventory as text, with numeric capacity cells.
+
+The extension chooses the format independently of `--format`; an unknown
+extension is an error. XLSX contains a Summary sheet and one sheet per category,
+with filters and frozen headers. CSV/JSON/Markdown are one table/list sorted by
+priority, placement and VM. stderr prints category VM counts without polluting
+stdout. Empty reports still contain headers (or an empty JSON array).

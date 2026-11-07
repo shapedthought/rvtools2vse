@@ -132,6 +132,10 @@ pub struct Cli {
     #[clap(long, value_parser)]
     pub exceptions_file: Option<PathBuf>,
 
+    /// Write one customer action row per VM (.csv, .json, .md or .xlsx)
+    #[clap(long, value_parser)]
+    pub action_report: Option<PathBuf>,
+
     /// Write the cleaned per-VM and per-disk tables to vms.parquet and disks.parquet in this folder
     #[clap(long, value_parser)]
     pub export_parquet: Option<PathBuf>,

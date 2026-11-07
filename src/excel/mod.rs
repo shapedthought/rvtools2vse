@@ -52,6 +52,15 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
 
         let cluster_column = workbook.get_col_pos("Cluster")?;
 
+        let host_column = find_col(&workbook, &["Host"]);
+        let os_columns: Vec<_> = [
+            "OS according to the VMware Tools",
+            "OS according to the configuration file",
+            "OS",
+        ]
+        .iter()
+        .filter_map(|name| find_col(&workbook, &[*name]))
+        .collect();
         let tools_column = workbook.get_col_pos("Tools").ok();
         let mut file_ids: Vec<(String, String, String)> = Vec::new();
         let info_ids = IdColumns::find(&workbook);
@@ -102,6 +111,16 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
                 cluster: cluster.to_string(),
                 capacity: *cap,
                 powerstate: power_state.to_string(),
+                host: host_column
+                    .and_then(|c| row.1.get(c))
+                    .map(clean_text)
+                    .unwrap_or_default(),
+                os: os_columns
+                    .iter()
+                    .filter_map(|c| row.1.get(*c))
+                    .map(clean_text)
+                    .find(|s| !s.is_empty())
+                    .unwrap_or_default(),
                 vpartition_capacity: None,
                 tools_status,
                 vm_key: key.clone(),
@@ -181,7 +200,7 @@ pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
         };
 
         if let Some(partition) = partition {
-            if cli.do_not_use_vpartition {
+            if cli.do_not_use_vpartition && cli.action_report.is_none() {
                 // skip reading partitions
             } else {
                 let partition = match partition {

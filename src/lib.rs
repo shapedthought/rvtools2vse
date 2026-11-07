@@ -1,5 +1,6 @@
 //! rvsum: offline RVTools summaries for backup sizing.
 
+mod actions;
 mod disk;
 mod excel;
 mod export;
@@ -94,7 +95,7 @@ pub fn run() -> Result<()> {
         },
     );
     let mut awareness = awareness;
-    if !disk_vec.is_empty() {
+    if !disk_vec.is_empty() && !cli.do_not_use_vpartition {
         awareness.exceptions.extend(disk::guest_gap_exceptions(
             &awareness.combined,
             &guest_parts,
@@ -125,6 +126,12 @@ pub fn run() -> Result<()> {
             vms.display(),
             disks.display()
         );
+    }
+    if let Some(path) = &cli.action_report {
+        let rows = actions::build(&info_vec, &guest_parts, &disk_vec, &cli)?;
+        actions::write(path, &rows)?;
+        actions::print_summary(&rows);
+        eprintln!("Customer action report written to: {}", path.display());
     }
     if cli.anonymize {
         // Filters and joins above used real names; hash only what is reported.
