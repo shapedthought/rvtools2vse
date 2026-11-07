@@ -247,6 +247,97 @@ def build_anon_filter(path):
     wb.save(path)
 
 
+def build_coverage(path):
+    """Backup-coverage fixture (fully invented names and values, sizes in MiB).
+    node-a/node-b: WSFC-style physical RDM on a physicalSharing bus, EMPTY Disk UUID,
+                   same Raw LUN ID -> one shared LUN group, counted once.
+    rac-1/rac-2:   multi-writer disk sharing one Disk UUID -> counted once, non-VADP.
+    clone-1/2:     cloned VMs with the same Disk UUID, sharingNone -> never merged.
+    k8s-worker:    kubelet/sysroot mounts repeating its one disk -> not flagged.
+    filer:         a 1000 GiB guest volume with no vDisk -> in-guest storage flagged.
+    ora-1/ora-2:   multi-writer disk that is ALSO independent -> excluded by default,
+                   reported once as non-VADP storage not in the estimate.
+    vTools overrides vInfo Tools (all toolsOk): node-b toolsOld,
+    notools toolsNotInstalled, stopped toolsNotRunning."""
+    G = 1024
+    vms = ["node-a", "node-b", "rac-1", "rac-2", "clone-1", "clone-2",
+           "k8s-worker", "filer", "notools", "stopped", "ora-1", "ora-2"]
+    wb = Workbook()
+    info = wb.active
+    info.title = "vInfo"
+    info.append(["VM", "Powerstate", "Datacenter", "Cluster", "In Use MiB", "Tools", "VM UUID"])
+    for vm in vms:
+        info.append([vm, "poweredOn", "DC-T", "CL-T", 500 * G, "toolsOk", f"u-{vm}"])
+
+    disk = wb.create_sheet("vDisk")
+    disk.append(["VM", "Powerstate", "Template", "Disk", "Disk Key", "Disk UUID", "Disk Path",
+                 "Capacity MiB", "Raw", "Disk Mode", "Sharing mode", "Controller", "Label",
+                 "SCSI Unit #", "Unit #", "Shared Bus", "Path", "Raw LUN ID", "Raw Comp. Mode",
+                 "Datacenter", "Cluster", "Host", "VM ID", "VM UUID", "VI SDK Server",
+                 "VI SDK UUID"])
+
+    def d(vm, label, key, uuid, cap, mode="persistent", sharing="sharingNone",
+          bus="noSharing", lun="", comp="", raw=False):
+        disk.append([vm, "poweredOn", False, label, key, uuid, f"[ds1] {vm}/{key}.vmdk",
+                     cap, raw, mode, sharing, "LSI Logic SAS", "SCSI controller 0", key - 2000,
+                     key - 2000, bus, "", lun, comp, "DC-T", "CL-T", "esx-1", f"id-{vm}",
+                     f"u-{vm}", "vc-test", "vc-uuid"])
+
+    for vm in ["node-a", "node-b"]:
+        d(vm, "Hard disk 1", 2000, f"d-{vm}", 100 * G)
+        d(vm, "Hard disk 2", 2001, "", 200 * G, bus="physicalSharing", lun="lun-0001",
+          comp="physicalMode", raw=True)
+    for vm in ["rac-1", "rac-2"]:
+        d(vm, "Hard disk 1", 2000, f"d-{vm}", 100 * G)
+        d(vm, "Hard disk 2", 2001, "d-shared", 300 * G, sharing="sharingMultiWriter")
+    for vm in ["clone-1", "clone-2"]:
+        d(vm, "Hard disk 1", 2000, "d-clone", 150 * G)
+    for vm in ["ora-1", "ora-2"]:
+        d(vm, "Hard disk 1", 2000, f"d-{vm}", 100 * G)
+        d(vm, "Hard disk 2", 2001, "d-ora", 400 * G, mode="independent_persistent",
+          sharing="sharingMultiWriter")
+    d("k8s-worker", "Hard disk 1", 2000, "d-k8s", 120 * G)
+    d("filer", "Hard disk 1", 2000, "d-filer", 100 * G)
+    d("notools", "Hard disk 1", 2000, "d-notools", 50 * G)
+    d("stopped", "Hard disk 1", 2000, "d-stopped", 50 * G, bus="")
+
+    part = wb.create_sheet("vPartition")
+    part.append(["VM", "Powerstate", "Template", "Disk Key", "Disk", "Capacity MiB",
+                 "Consumed MiB", "Free MiB", "Free %", "VM UUID"])
+
+    def p(vm, key, mount, cap, used):
+        part.append([vm, "poweredOn", False, key, mount, cap, used, cap - used,
+                     round(100 * (cap - used) / cap), f"u-{vm}"])
+
+    for vm in ["node-a", "node-b"]:
+        p(vm, "2000", "C:\\", 100 * G, 90 * G)
+        p(vm, "2001", "E:\\", 200 * G, 150 * G)
+    for vm in ["rac-1", "rac-2"]:
+        p(vm, "2000", "/", 100 * G, 90 * G)
+        p(vm, "2001", "/u01", 300 * G, 250 * G)
+    for vm in ["clone-1", "clone-2"]:
+        p(vm, "2000", "/", 150 * G, 100 * G)
+    for vm in ["ora-1", "ora-2"]:
+        p(vm, "2000", "/", 100 * G, 80 * G)
+    p("k8s-worker", "2000", "/", 120 * G, 60 * G)
+    p("k8s-worker", "2000", "/sysroot", 120 * G, 60 * G)
+    for i in range(20):
+        p("k8s-worker", "2000", f"/var/lib/kubelet/pods/pod-{i}/volume", 120 * G, 60 * G)
+        p("k8s-worker", "", f"/run/containers/storage/overlay/{i}", 200 * G, 10 * G)
+    p("filer", "2000", "/", 100 * G, 50 * G)
+    p("filer", "", "/mnt/iscsi", 1000 * G, 800 * G)
+
+    tools = wb.create_sheet("vTools")
+    tools.append(["VM", "Powerstate", "Template", "VM Version", "Tools", "Tools Version",
+                  "Required Version", "Upgradeable", "Upgrade Policy", "App status",
+                  "Heartbeat status", "Operation Ready", "VM UUID"])
+    status = {"node-b": "toolsOld", "notools": "toolsNotInstalled", "stopped": "toolsNotRunning"}
+    for vm in vms:
+        tools.append([vm, "poweredOn", False, "vmx-19", status.get(vm, "toolsOk"), "12352",
+                      "12352", "No", "manual", "appStatusGray", "green", True, f"u-{vm}"])
+    wb.save(path)
+
+
 here = Path(__file__).parent
 build_baseline(here / "regression_baseline.xlsx")
 build_baseline(here / "regression_no_part_powerstate.xlsx", part_powerstate=False)
@@ -258,4 +349,5 @@ build_uuid_join(here / "regression_uuid_a.xlsx")
 build_uuid_join(here / "regression_uuid_b.xlsx", second_file=True)
 build_no_uuid_duplicate(here / "regression_no_uuid_dup.xlsx")
 build_anon_filter(here / "regression_anon_filter.xlsx")
+build_coverage(here / "regression_coverage.xlsx")
 print("wrote uuid_a, uuid_b, no_uuid_dup, anon_filter, baseline, no_part_powerstate, disks, disks2, disk_summary_a, disk_summary_b")

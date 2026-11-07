@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Backup coverage: a stderr `Coverage:` line splits the estimate into image-level (VADP) and "needs an agent or other method" capacity. Kept physical RDMs and independent disks, multi-writer disks and shared-SCSI-bus disks land in the non-VADP group, with a `needs_agent_or_other_method` exception per VM and new `non_vadp_mib` (vms) and `coverage`, `shared_bus`, `raw_lun_id` (disks) parquet columns.
+- The coverage block always reports non-VADP storage excluded from the estimate by the current flags ("Not in estimate, needs agent or other method"), with shared disks counted once (Disk UUID, then Raw LUN ID within the vCenter), including multi-writer disks that are also independent.
+- `--show-info` / `--summary-file` summaries (table, Markdown, CSV, JSON rows and totals) gain `image_level_tb`, `agent_in_estimate_tb` and `excluded_non_vadp_tb` columns after the existing ones.
+- `shared_scsi_bus` exceptions read the vDisk `Shared Bus` column (WSFC-style `physicalSharing` / `virtualSharing`) and group cluster nodes sharing a LUN. Shared physical RDMs without a `Disk UUID` are de-duplicated by `Raw LUN ID` within the vCenter.
+- `possible_in_guest_storage (heuristic)` flags guests whose file systems exceed their vDisks by `--guest-gap-threshold` percent (default 10) and `--guest-gap-min-gib` (default 50), after ignoring container-runtime mounts and repeated views of the same file system.
+- The `vTools` sheet is read when present (vInfo `Tools` is the fallback), and `vmware_tools` exceptions report `toolsNotInstalled`, `toolsNotRunning` on powered-on VMs and `toolsOld`, with the impact on application-aware processing and guest indexing.
+- Cache schema version 2 (adds vTools and the new vDisk/vPartition columns); older cache files are rebuilt automatically.
+
 - `--export-parquet <DIR>` writes `vms.parquet` and `disks.parquet` (cleaned, UUID-joined, filtered tables with a `source_file` column) for pandas/Polars. Honors `--anonymize`.
 - `--verbose` prints per-file load time with the cache result (`hit`, `miss`, `refresh`, `bypass`).
 - `Containerfile.bench` (rvsum + hyperfine) and README guidance for benchmarking several RVTools files inside a container.

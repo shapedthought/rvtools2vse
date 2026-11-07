@@ -87,3 +87,29 @@ pub fn tools_unreliable(tools: Option<&str>) -> bool {
         .map(|t| t.to_ascii_lowercase())
         .is_some_and(|t| t.contains("toolsnotinstalled") || t.contains("toolsnotrunning"))
 }
+
+pub fn is_shared_bus_mode(shared_bus: &str) -> bool {
+    let s = shared_bus.to_ascii_lowercase();
+    s.contains("physicalsharing") || s.contains("virtualsharing")
+}
+
+/// Guest mount paths created by container runtimes, which repeat real disks.
+pub fn is_container_mount(mount: &str) -> bool {
+    let m = mount.trim().to_ascii_lowercase();
+    const PREFIXES: &[&str] = &[
+        "/var/lib/kubelet",
+        "/var/lib/containers",
+        "/var/lib/docker",
+        "/var/lib/containerd",
+        "/var/lib/rancher",
+        "/run",
+        "/var/run",
+        "/proc",
+        "/sys",
+        "/dev",
+    ];
+    m.contains("overlay")
+        || PREFIXES
+            .iter()
+            .any(|p| m == *p || m.starts_with(&format!("{p}/")))
+}

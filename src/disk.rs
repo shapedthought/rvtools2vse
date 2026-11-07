@@ -24,8 +24,18 @@ pub struct Exception {
 #[derive(Debug, Clone)]
 pub struct DiskAwarenessResult {
     pub combined: Vec<Vinfo>,
+    /// Non-VADP disks left out of the estimate by policy, shared storage once.
+    pub excluded: Vec<ExcludedDisk>,
     pub exceptions: Vec<Exception>,
     pub impacts: Vec<FlagImpact>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExcludedDisk {
+    pub vm_key: String,
+    pub datacenter: String,
+    pub cluster: String,
+    pub capacity_mib: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -138,9 +148,17 @@ pub fn duplicate_name_exceptions(info_vec: &[Vinfo]) -> Vec<Exception> {
     out
 }
 
+fn shared_reason(d: &Vdisk) -> String {
+    if d.is_shared || !d.is_shared_bus {
+        format!("shared_disk ({})", d.sharing)
+    } else {
+        format!("shared_disk (shared bus {})", d.shared_bus)
+    }
+}
+
 fn summary_disk_key(d: &Vdisk) -> String {
     let key = d.share_key();
-    if d.is_shared || key.starts_with("uuid:") {
+    if d.dedupes() || key.starts_with("uuid:") {
         key
     } else {
         // Ordinary disks without UUIDs are not shared just because their labels match.
@@ -173,7 +191,7 @@ fn apply_inner(
     for info in &vm_order {
         if let Some(disks) = disks_by_vm.get(info.vm_key.as_str()) {
             for d in disks {
-                if d.is_shared && !is_excluded(d, opts) {
+                if d.dedupes() && !is_excluded(d, opts) {
                     shared_owner
                         .entry(d.share_key())
                         .or_insert_with(|| (info.vm_key.clone(), info.vm_name.clone()));
@@ -182,9 +200,45 @@ fn apply_inner(
         }
     }
 
+    // Excluded non-VADP storage, shared disks once (UUID, then LUN per vCenter),
+    // attributed to the first VM in name order.
+    let mut excluded = Vec::new();
+    let mut excluded_seen = HashSet::new();
+    for info in &vm_order {
+        for d in disks_by_vm.get(info.vm_key.as_str()).into_iter().flatten() {
+            if !is_excluded(d, opts) {
+                continue;
+            }
+            if d.dedupes() && !excluded_seen.insert(d.share_key()) {
+                continue;
+            }
+            excluded.push(ExcludedDisk {
+                vm_key: info.vm_key.clone(),
+                datacenter: info.datacenter.clone(),
+                cluster: info.cluster.clone(),
+                capacity_mib: d.capacity,
+            });
+        }
+    }
+
+    // Shared-SCSI-bus storage grouped by LUN/UUID, so cluster nodes can be matched up.
+    let mut bus_groups: BTreeMap<String, HashSet<&str>> = BTreeMap::new();
+    for d in disk_vec.iter().filter(|d| d.is_shared_bus && d.dedupes()) {
+        bus_groups
+            .entry(d.share_key())
+            .or_default()
+            .insert(d.vm_key.as_str());
+    }
+    let bus_group_id: HashMap<&str, usize> = bus_groups
+        .keys()
+        .enumerate()
+        .map(|(i, k)| (k.as_str(), i + 1))
+        .collect();
+
     let mut exceptions = Vec::new();
     let mut combined = Vec::new();
     let mut counted_shared = HashSet::new();
+    let mut non_vadp_by_vm: HashMap<&str, f64> = HashMap::new();
 
     for info in info_vec {
         let disks = disks_by_vm
@@ -231,9 +285,28 @@ fn apply_inner(
                 });
             }
 
+            if d.is_shared_bus {
+                let key = d.share_key();
+                let action = match bus_group_id.get(key.as_str()) {
+                    Some(id) => format!(
+                        "non_vadp_needs_agent; shared_lun_group_{id} ({} node(s))",
+                        bus_groups[&key].len()
+                    ),
+                    None => "non_vadp_needs_agent; no_uuid_or_lun_to_group".into(),
+                };
+                exceptions.push(Exception {
+                    vm_name: info.vm_name.clone(),
+                    disk: d.disk_label.clone(),
+                    reason: format!("shared_scsi_bus ({})", d.shared_bus),
+                    capacity_mib: d.capacity,
+                    disk_key: Some(summary_disk_key(d)),
+                    action,
+                });
+            }
+
             let mut counts = !is_excluded(d, opts);
 
-            if d.is_shared {
+            if d.dedupes() {
                 let key = d.share_key();
                 let (owner_key, owner) = shared_owner
                     .get(&key)
@@ -243,7 +316,7 @@ fn apply_inner(
                     exceptions.push(Exception {
                         vm_name: info.vm_name.clone(),
                         disk: d.disk_label.clone(),
-                        reason: format!("shared_disk ({})", d.sharing),
+                        reason: shared_reason(d),
                         capacity_mib: d.capacity,
                         disk_key: Some(summary_disk_key(d)),
                         action: "counted_once_on_this_vm".into(),
@@ -252,7 +325,7 @@ fn apply_inner(
                     exceptions.push(Exception {
                         vm_name: info.vm_name.clone(),
                         disk: d.disk_label.clone(),
-                        reason: format!("shared_disk ({})", d.sharing),
+                        reason: shared_reason(d),
                         capacity_mib: d.capacity,
                         disk_key: Some(summary_disk_key(d)),
                         action: format!("deduped_already_counted_on_{owner}"),
@@ -262,7 +335,7 @@ fn apply_inner(
                     exceptions.push(Exception {
                         vm_name: info.vm_name.clone(),
                         disk: d.disk_label.clone(),
-                        reason: format!("shared_disk ({})", d.sharing),
+                        reason: shared_reason(d),
                         capacity_mib: d.capacity,
                         disk_key: Some(summary_disk_key(d)),
                         action: "noted_also_non_vadp".into(),
@@ -273,6 +346,9 @@ fn apply_inner(
             if counts {
                 eligible += d.capacity;
                 any_contributing = true;
+                if d.is_non_vadp() {
+                    *non_vadp_by_vm.entry(info.vm_key.as_str()).or_default() += d.capacity;
+                }
             }
         }
 
@@ -376,14 +452,153 @@ fn apply_inner(
             tools_status: info.tools_status.clone(),
             vm_key: info.vm_key.clone(),
             vm_uuid: info.vm_uuid.clone(),
+            non_vadp_capacity: 0.0,
         });
+    }
+
+    // Non-VADP share of each VM's estimate, never more than the estimate itself.
+    for v in combined.iter_mut() {
+        let non_vadp = non_vadp_by_vm
+            .get(v.vm_key.as_str())
+            .copied()
+            .unwrap_or(0.0);
+        v.non_vadp_capacity = non_vadp.min(v.capacity).max(0.0);
+        if v.non_vadp_capacity > 0.0 {
+            exceptions.push(Exception {
+                vm_name: v.vm_name.clone(),
+                disk: "*".into(),
+                reason: "needs_agent_or_other_method".into(),
+                capacity_mib: v.non_vadp_capacity,
+                disk_key: None,
+                action: "kept_in_estimate_not_image_level_backupable".into(),
+            });
+        }
     }
 
     DiskAwarenessResult {
         combined,
+        excluded,
         exceptions,
         impacts: Vec::new(),
     }
+}
+
+/// Thresholds for the in-guest storage heuristic.
+#[derive(Debug, Clone, Copy)]
+pub struct GuestGap {
+    /// Minimum gap as a percentage of the VM's provisioned vDisk capacity.
+    pub percent: f64,
+    /// Minimum gap in GiB.
+    pub min_gib: f64,
+}
+
+/// Guest partition size per VM after removing container-runtime mount noise
+/// and repeated views of the same filesystem: rows are de-duplicated by
+/// (VM, Disk Key, size), or by (VM, mount, size) when the Disk Key is blank.
+pub fn guest_partition_sizes(parts: &[Vpartition]) -> HashMap<String, f64> {
+    let mut seen = HashSet::new();
+    let mut out: HashMap<String, f64> = HashMap::new();
+    for p in parts {
+        if p.size <= 0.0 || crate::helpers::is_container_mount(&p.mount) {
+            continue;
+        }
+        let size = format!("{:.0}", p.size);
+        let id = if p.disk_key.is_empty() {
+            (p.vm_key.clone(), format!("mount:{}", p.mount), size)
+        } else {
+            (p.vm_key.clone(), format!("key:{}", p.disk_key), size)
+        };
+        if seen.insert(id) {
+            *out.entry(p.vm_key.clone()).or_default() += p.size;
+        }
+    }
+    out
+}
+
+/// Heuristic: guest file systems noticeably larger than every attached vDisk
+/// suggest in-guest iSCSI/NFS/SMB volumes that image-level backup never sees.
+pub fn guest_gap_exceptions(
+    vms: &[Vinfo],
+    parts: &[Vpartition],
+    disks: &[Vdisk],
+    gap: GuestGap,
+) -> Vec<Exception> {
+    let guest = guest_partition_sizes(parts);
+    let mut vdisk: HashMap<&str, f64> = HashMap::new();
+    for d in disks {
+        *vdisk.entry(d.vm_key.as_str()).or_default() += d.capacity;
+    }
+    let mut out = Vec::new();
+    for v in vms {
+        let (Some(g), Some(d)) = (guest.get(&v.vm_key), vdisk.get(v.vm_key.as_str())) else {
+            continue;
+        };
+        let diff = g - d;
+        let threshold = f64::max(d * gap.percent / 100.0, gap.min_gib * 1024.0);
+        if diff > threshold {
+            out.push(Exception {
+                vm_name: v.vm_name.clone(),
+                disk: "*".into(),
+                reason: "possible_in_guest_storage (heuristic)".into(),
+                capacity_mib: diff,
+                disk_key: None,
+                action: format!(
+                    "guest file systems {g:.0} MiB vs vDisks {d:.0} MiB; check for in-guest iSCSI/NFS volumes needing an agent"
+                ),
+            });
+        }
+    }
+    out
+}
+
+/// VMware Tools status exceptions (vTools sheet, else vInfo `Tools`).
+pub fn tools_exceptions(vms: &[Vinfo]) -> Vec<Exception> {
+    let mut out = Vec::new();
+    for v in vms {
+        let Some(t) = v.tools_status.as_deref() else {
+            continue;
+        };
+        let tl = t.to_ascii_lowercase();
+        let powered_on = v.powerstate.to_ascii_lowercase().contains("poweredon");
+        let action = if tl.contains("toolsnotinstalled") {
+            "no_application_aware_processing_or_guest_indexing; install VMware Tools"
+        } else if tl.contains("toolsnotrunning") && powered_on {
+            "application_aware_processing_and_guest_indexing_will_fail; start VMware Tools"
+        } else if tl.contains("toolsold") {
+            "outdated_tools_may_break_quiescing_or_application_aware_processing; upgrade"
+        } else {
+            continue;
+        };
+        out.push(Exception {
+            vm_name: v.vm_name.clone(),
+            disk: "*".into(),
+            reason: format!("vmware_tools ({t})"),
+            capacity_mib: v.capacity,
+            disk_key: None,
+            action: action.into(),
+        });
+    }
+    out
+}
+
+/// One-line image-level vs agent/other split of the estimate.
+pub fn coverage_summary(vms: &[Vinfo], excluded: &[ExcludedDisk]) -> String {
+    let total = vms.iter().fold(0.0, |a, v| a + v.capacity);
+    let non = vms.iter().fold(0.0, |a, v| a + v.non_vadp_capacity);
+    let n = vms.iter().filter(|v| v.non_vadp_capacity > 0.0).count();
+    let ex = excluded.iter().fold(0.0, |a, e| a + e.capacity_mib);
+    let ex_vms = excluded
+        .iter()
+        .map(|e| e.vm_key.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+    let tb = 1048576.0;
+    format!(
+        "Coverage:\n  In estimate, image-level (VADP): {:.2} TB\n  In estimate, needs agent or other method: {:.2} TB ({n} VM(s))\n  Not in estimate, needs agent or other method: {:.2} TB provisioned ({ex_vms} VM(s))\n",
+        (total - non) / tb,
+        non / tb,
+        ex / tb
+    )
 }
 
 pub fn render_exceptions(rows: &[Exception], format: SummaryFormat) -> Result<String> {
@@ -460,6 +675,20 @@ pub fn reason_bucket(reason: &str) -> &'static str {
         "tools_unreliable"
     } else if r.starts_with("no_vpartition") {
         "no_vpartition"
+    } else if r.starts_with("shared_scsi_bus") {
+        "shared_scsi_bus"
+    } else if r.starts_with("possible_in_guest_storage") {
+        "in_guest_storage"
+    } else if r.starts_with("vmware_tools") {
+        if r.contains("toolsnotinstalled") {
+            "tools_not_installed"
+        } else if r.contains("toolsnotrunning") {
+            "tools_not_running"
+        } else {
+            "tools_old"
+        }
+    } else if r.starts_with("needs_agent_or_other") {
+        "needs_agent"
     } else if r.starts_with("duplicate_vm_name") {
         "duplicate_vm_name"
     } else if r.starts_with("no_vadp_eligible") || r.starts_with("all_disks_physical") {
@@ -520,6 +749,48 @@ fn bucket_label(bucket: &str, count: usize) -> String {
                 "VMs with no VADP-eligible disks"
             }
         }
+        "shared_scsi_bus" => {
+            if count == 1 {
+                "disk on a shared SCSI bus (WSFC-style, non-VADP)"
+            } else {
+                "disks on a shared SCSI bus (WSFC-style, non-VADP)"
+            }
+        }
+        "in_guest_storage" => {
+            if count == 1 {
+                "VM with possible in-guest storage (heuristic)"
+            } else {
+                "VMs with possible in-guest storage (heuristic)"
+            }
+        }
+        "tools_not_installed" => {
+            if count == 1 {
+                "VM without VMware Tools installed"
+            } else {
+                "VMs without VMware Tools installed"
+            }
+        }
+        "tools_not_running" => {
+            if count == 1 {
+                "powered-on VM with VMware Tools not running"
+            } else {
+                "powered-on VMs with VMware Tools not running"
+            }
+        }
+        "tools_old" => {
+            if count == 1 {
+                "VM with outdated VMware Tools"
+            } else {
+                "VMs with outdated VMware Tools"
+            }
+        }
+        "needs_agent" => {
+            if count == 1 {
+                "VM with kept capacity needing an agent or other method"
+            } else {
+                "VMs with kept capacity needing an agent or other method"
+            }
+        }
         "duplicate_vm_name" => {
             if count == 1 {
                 "VM record sharing its name with another VM"
@@ -563,7 +834,10 @@ pub fn summarize_exceptions(rows: &[Exception], impacts: &[FlagImpact]) -> Strin
         let group = groups.entry((bucket, disposition)).or_default();
         group.attachments += 1;
         group.mib += r.capacity_mib;
-        if matches!(bucket, "physical_rdm" | "independent_disk" | "shared_disk") {
+        if matches!(
+            bucket,
+            "physical_rdm" | "independent_disk" | "shared_disk" | "shared_scsi_bus"
+        ) {
             has_disk_groups = true;
             let key = r
                 .disk_key
@@ -659,6 +933,7 @@ mod tests {
             tools_status: None,
             vm_key: name.into(),
             vm_uuid: String::new(),
+            non_vadp_capacity: 0.0,
         }
     }
 
@@ -673,6 +948,9 @@ mod tests {
             vm_name: name.into(),
             vm_key: name.into(),
             capacity: cap,
+            size: cap,
+            disk_key: String::new(),
+            mount: String::new(),
         }
     }
 
@@ -688,6 +966,10 @@ mod tests {
             is_physical_rdm: false,
             is_independent: false,
             is_shared: false,
+            shared_bus: String::new(),
+            raw_lun_id: String::new(),
+            vi_sdk: String::new(),
+            is_shared_bus: false,
         }
     }
 
@@ -917,5 +1199,211 @@ mod tests {
             "vm1,Hard disk 1,physical_rdm (physicalMode),1024.00,excluded from estimate"
         ));
         assert!(!csv.contains("╭") && !csv.contains("│") && !csv.contains("╰"));
+    }
+
+    fn shared_bus_rdm(vm: &str, lun: &str) -> Vdisk {
+        let mut d = disk_base(vm, 1024.0, "Hard disk 2");
+        d.raw_comp_mode = "physicalMode".into();
+        d.is_physical_rdm = true;
+        d.shared_bus = "physicalSharing".into();
+        d.is_shared_bus = true;
+        d.raw_lun_id = lun.into();
+        d.vi_sdk = "vc1".into();
+        d
+    }
+
+    #[test]
+    fn shared_bus_rdm_with_empty_uuid_groups_by_lun_and_counts_once() {
+        let vms = [info("node1", 4096.0), info("node2", 4096.0)];
+        let mut disks = vec![
+            disk_base("node1", 1024.0, "Hard disk 1"),
+            disk_base("node2", 1024.0, "Hard disk 1"),
+            shared_bus_rdm("node1", "lun-a"),
+            shared_bus_rdm("node2", "lun-a"),
+        ];
+        disks[0].disk_uuid = "u1".into();
+        disks[1].disk_uuid = "u2".into();
+        let guest = [part("node1", 9000.0), part("node2", 9000.0)];
+        let r = apply(&vms, &guest, &disks, opts(true, false));
+        let bus: Vec<_> = r
+            .exceptions
+            .iter()
+            .filter(|e| e.reason.starts_with("shared_scsi_bus"))
+            .collect();
+        assert_eq!(bus.len(), 2);
+        assert!(bus
+            .iter()
+            .all(|e| e.action.contains("shared_lun_group_1 (2 node(s))")));
+        // Counted once across both nodes (vInfo stays the ceiling).
+        let total: f64 = r.combined.iter().map(|v| v.capacity).sum();
+        assert_eq!(total, 3072.0);
+        let non: f64 = r.combined.iter().map(|v| v.non_vadp_capacity).sum();
+        assert_eq!(non, 1024.0);
+        // Different LUNs are never merged even with empty UUIDs.
+        let disks = vec![
+            shared_bus_rdm("node1", "lun-a"),
+            shared_bus_rdm("node2", "lun-b"),
+        ];
+        let r = apply(&vms, &guest, &disks, opts(true, false));
+        let total: f64 = r.combined.iter().map(|v| v.capacity).sum();
+        assert_eq!(total, 2048.0);
+    }
+
+    #[test]
+    fn cloned_vms_sharing_a_uuid_are_not_merged() {
+        let vms = [info("clone1", 4096.0), info("clone2", 4096.0)];
+        let mut a = disk_base("clone1", 1024.0, "Hard disk 1");
+        let mut b = disk_base("clone2", 1024.0, "Hard disk 1");
+        a.disk_uuid = "same".into();
+        b.disk_uuid = "same".into();
+        a.sharing = "sharingNone".into();
+        b.sharing = "sharingNone".into();
+        let guest = [part("clone1", 9000.0), part("clone2", 9000.0)];
+        let r = apply(&vms, &guest, &[a, b], opts(false, false));
+        let total: f64 = r.combined.iter().map(|v| v.capacity).sum();
+        assert_eq!(total, 2048.0);
+        assert!(r.combined.iter().all(|v| v.non_vadp_capacity == 0.0));
+    }
+
+    #[test]
+    fn kept_independent_and_multiwriter_are_non_vadp() {
+        let vms = [info("a", 8192.0), info("b", 8192.0)];
+        let mut ind = disk_base("a", 2048.0, "Hard disk 2");
+        ind.disk_mode = "independent_persistent".into();
+        ind.is_independent = true;
+        let mut mw_a = disk_base("a", 1024.0, "Hard disk 3");
+        let mut mw_b = disk_base("b", 1024.0, "Hard disk 3");
+        for d in [&mut mw_a, &mut mw_b] {
+            d.disk_uuid = "mw".into();
+            d.sharing = "sharingMultiWriter".into();
+            d.is_shared = true;
+        }
+        let os = disk_base("a", 1024.0, "Hard disk 1");
+        let disks = [os, ind, mw_a, mw_b];
+        let r = apply(&vms, &[], &disks, opts(false, true));
+        let non: f64 = r.combined.iter().map(|v| v.non_vadp_capacity).sum();
+        assert_eq!(non, 3072.0, "independent + multi-writer counted once");
+        assert!(coverage_summary(&r.combined, &r.excluded).contains("needs agent or other method"));
+        assert!(r
+            .exceptions
+            .iter()
+            .any(|e| e.reason == "needs_agent_or_other_method" && e.vm_name == "a"));
+        // Excluded by default: not in the estimate, so not in the agent group.
+        let r = apply(&vms, &[], &disks, opts(false, false));
+        let non: f64 = r.combined.iter().map(|v| v.non_vadp_capacity).sum();
+        assert_eq!(non, 1024.0);
+    }
+
+    fn gpart(vm: &str, key: &str, mount: &str, size: f64) -> Vpartition {
+        let mut p = part(vm, size / 2.0);
+        p.size = size;
+        p.disk_key = key.into();
+        p.mount = mount.into();
+        p
+    }
+
+    const GAP: GuestGap = GuestGap {
+        percent: 10.0,
+        min_gib: 50.0,
+    };
+
+    #[test]
+    fn kubelet_partition_noise_is_not_flagged() {
+        let vms = [info("node", 200_000.0)];
+        let disks = [disk_base("node", 122_880.0, "Hard disk 1")];
+        let mut parts = vec![gpart("node", "2000", "/", 122_000.0)];
+        for i in 0..30 {
+            parts.push(gpart(
+                "node",
+                "2000",
+                &format!("/var/lib/kubelet/pods/p{i}/volumes"),
+                122_000.0,
+            ));
+            parts.push(gpart("node", "2000", &format!("/sysroot/m{i}"), 122_000.0));
+            parts.push(gpart("node", "", &format!("/run/containers/{i}"), 50_000.0));
+        }
+        assert!(guest_gap_exceptions(&vms, &parts, &disks, GAP).is_empty());
+    }
+
+    #[test]
+    fn large_unbacked_guest_volume_is_flagged() {
+        let vms = [info("db", 200_000.0)];
+        let disks = [disk_base("db", 102_400.0, "Hard disk 1")];
+        let parts = vec![
+            gpart("db", "2000", "C:\\", 100_000.0),
+            gpart("db", "", "E:\\", 512_000.0),
+        ];
+        let e = guest_gap_exceptions(&vms, &parts, &disks, GAP);
+        assert_eq!(e.len(), 1);
+        assert!(e[0].reason.contains("heuristic"));
+        // Small gaps stay under the GiB floor.
+        let parts = vec![gpart("db", "", "E:\\", 120_000.0)];
+        assert!(guest_gap_exceptions(&vms, &parts, &disks, GAP).is_empty());
+    }
+
+    #[test]
+    fn tools_exceptions_cover_each_status() {
+        let mut off = info_tools("off", 1.0, "toolsNotRunning");
+        off.powerstate = "poweredOff".into();
+        let vms = [
+            info_tools("ok", 1.0, "toolsOk"),
+            info_tools("old", 1.0, "toolsOld"),
+            info_tools("none", 1.0, "toolsNotInstalled"),
+            info_tools("stopped", 1.0, "toolsNotRunning"),
+            off,
+        ];
+        let e = tools_exceptions(&vms);
+        let names: Vec<_> = e.iter().map(|e| e.vm_name.as_str()).collect();
+        assert_eq!(names, ["old", "none", "stopped"]);
+        let buckets: Vec<_> = e.iter().map(|e| reason_bucket(&e.reason)).collect();
+        assert_eq!(
+            buckets,
+            ["tools_old", "tools_not_installed", "tools_not_running"]
+        );
+    }
+
+    #[test]
+    fn excluded_multiwriter_independent_counted_once_and_reported() {
+        let vms = [info("rac-a", 8192.0), info("rac-b", 8192.0)];
+        let mut disks = vec![
+            disk_base("rac-a", 1024.0, "Hard disk 1"),
+            disk_base("rac-b", 1024.0, "Hard disk 1"),
+        ];
+        for vm in ["rac-a", "rac-b"] {
+            let mut d = disk_base(vm, 4096.0, "Hard disk 2");
+            d.disk_uuid = "mw-ind".into();
+            d.sharing = "sharingMultiWriter".into();
+            d.is_shared = true;
+            d.disk_mode = "independent_persistent".into();
+            d.is_independent = true;
+            disks.push(d);
+        }
+        // An empty-UUID physical RDM shared by LUN is also counted once.
+        for vm in ["rac-a", "rac-b"] {
+            let mut d = disk_base(vm, 2048.0, "Hard disk 3");
+            d.raw_comp_mode = "physicalMode".into();
+            d.is_physical_rdm = true;
+            d.shared_bus = "physicalSharing".into();
+            d.is_shared_bus = true;
+            d.raw_lun_id = "lun-9".into();
+            d.vi_sdk = "vc1".into();
+            disks.push(d);
+        }
+        let guest = [part("rac-a", 900.0), part("rac-b", 900.0)];
+        let r = apply(&vms, &guest, &disks, opts(false, false));
+        let ex: f64 = r.excluded.iter().map(|e| e.capacity_mib).sum();
+        assert_eq!(ex, 6144.0);
+        assert!(r.excluded.iter().all(|e| e.vm_key == "rac-a"));
+        assert!(r.combined.iter().all(|v| v.non_vadp_capacity == 0.0));
+        let line = coverage_summary(&r.combined, &r.excluded);
+        assert!(
+            line.contains(
+                "Not in estimate, needs agent or other method: 0.01 TB provisioned (1 VM(s))"
+            ),
+            "{line}"
+        );
+        // Keeping both moves the storage into the estimate; nothing is left excluded.
+        let r = apply(&vms, &guest, &disks, opts(true, true));
+        assert!(r.excluded.is_empty());
     }
 }
