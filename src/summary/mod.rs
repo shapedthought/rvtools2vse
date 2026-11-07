@@ -57,12 +57,18 @@ struct Row<'a> {
     cluster: &'a str,
     capacity_tb: f64,
     vm_count: usize,
+    image_level_tb: f64,
+    agent_in_estimate_tb: f64,
+    excluded_non_vadp_tb: f64,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
 struct Totals {
     capacity_tb: f64,
     vm_count: usize,
+    image_level_tb: f64,
+    agent_in_estimate_tb: f64,
+    excluded_non_vadp_tb: f64,
 }
 
 #[derive(Serialize)]
@@ -79,9 +85,14 @@ fn sorted(dcs: &[Datacenter]) -> Vec<&Datacenter> {
 }
 
 fn totals(dcs: &[Datacenter]) -> Totals {
+    let capacity_tb = dcs.iter().fold(0.0, |acc, x| acc + x.capacity);
+    let agent_in_estimate_tb = dcs.iter().fold(0.0, |acc, x| acc + x.agent);
     Totals {
-        capacity_tb: dcs.iter().fold(0.0, |acc, x| acc + x.capacity),
+        capacity_tb,
         vm_count: dcs.iter().map(|x| x.vm_count).sum(),
+        image_level_tb: capacity_tb - agent_in_estimate_tb,
+        agent_in_estimate_tb,
+        excluded_non_vadp_tb: dcs.iter().fold(0.0, |acc, x| acc + x.excluded),
     }
 }
 
@@ -100,13 +111,24 @@ pub fn render_table(dcs: &[Datacenter]) -> String {
         .load_preset(UTF8_FULL)
         .apply_modifier(UTF8_ROUND_CORNERS)
         .apply_modifier(UTF8_SOLID_INNER_BORDERS)
-        .set_header(vec!["Datacenter", "Cluster", "Capacity (TB)", "VM Count"]);
+        .set_header(vec![
+            "Datacenter",
+            "Cluster",
+            "Capacity (TB)",
+            "VM Count",
+            "Image-level (TB)",
+            "Agent, in estimate (TB)",
+            "Not in estimate, non-VADP (TB)",
+        ]);
     for x in sorted(dcs) {
         table.add_row(vec![
             x.name.to_string(),
             x.cluster.to_string(),
             format!("{:.2}", x.capacity),
             x.vm_count.to_string(),
+            format!("{:.2}", x.capacity - x.agent),
+            format!("{:.2}", x.agent),
+            format!("{:.2}", x.excluded),
         ]);
     }
     format!("{table}\n")
@@ -121,6 +143,9 @@ pub fn render_json(dcs: &[Datacenter]) -> anyhow::Result<String> {
                 cluster: &x.cluster,
                 capacity_tb: x.capacity,
                 vm_count: x.vm_count,
+                image_level_tb: x.capacity - x.agent,
+                agent_in_estimate_tb: x.agent,
+                excluded_non_vadp_tb: x.excluded,
             })
             .collect(),
         totals: totals(dcs),
@@ -130,13 +155,24 @@ pub fn render_json(dcs: &[Datacenter]) -> anyhow::Result<String> {
 
 pub fn render_csv(dcs: &[Datacenter]) -> anyhow::Result<String> {
     let mut wtr = csv::Writer::from_writer(vec![]);
-    wtr.write_record(["datacenter", "cluster", "capacity_tb", "vm_count"])?;
+    wtr.write_record([
+        "datacenter",
+        "cluster",
+        "capacity_tb",
+        "vm_count",
+        "image_level_tb",
+        "agent_in_estimate_tb",
+        "excluded_non_vadp_tb",
+    ])?;
     for x in sorted(dcs) {
         wtr.write_record([
             x.name.as_str(),
             x.cluster.as_str(),
             &format!("{:.2}", x.capacity),
             &x.vm_count.to_string(),
+            &format!("{:.2}", x.capacity - x.agent),
+            &format!("{:.2}", x.agent),
+            &format!("{:.2}", x.excluded),
         ])?;
     }
     Ok(String::from_utf8(wtr.into_inner()?)?)
@@ -148,20 +184,23 @@ fn md_escape(s: &str) -> String {
 
 pub fn render_md(dcs: &[Datacenter]) -> String {
     let mut out =
-        String::from("| Datacenter | Cluster | Capacity (TB) | VM Count |\n|---|---|---:|---:|\n");
+        String::from("| Datacenter | Cluster | Capacity (TB) | VM Count | Image-level (TB) | Agent, in estimate (TB) | Not in estimate, non-VADP (TB) |\n|---|---|---:|---:|---:|---:|---:|\n");
     for x in sorted(dcs) {
         out.push_str(&format!(
-            "| {} | {} | {:.2} | {} |\n",
+            "| {} | {} | {:.2} | {} | {:.2} | {:.2} | {:.2} |\n",
             md_escape(&x.name),
             md_escape(&x.cluster),
             x.capacity,
-            x.vm_count
+            x.vm_count,
+            x.capacity - x.agent,
+            x.agent,
+            x.excluded
         ));
     }
     let t = totals(dcs);
     out.push_str(&format!(
-        "| **Total** | | **{:.2}** | **{}** |\n",
-        t.capacity_tb, t.vm_count
+        "| **Total** | | **{:.2}** | **{}** | **{:.2}** | **{:.2}** | **{:.2}** |\n",
+        t.capacity_tb, t.vm_count, t.image_level_tb, t.agent_in_estimate_tb, t.excluded_non_vadp_tb
     ));
     out
 }
@@ -176,6 +215,7 @@ mod tests {
             cluster: cluster.into(),
             vm_count,
             capacity,
+            ..Default::default()
         }
     }
 
@@ -192,7 +232,7 @@ mod tests {
         let out = render_csv(&sample()).unwrap();
         assert_eq!(
             out,
-            "datacenter,cluster,capacity_tb,vm_count\nDC-B,C2,10.26,5\nDC-A,C1,1.50,3\n\"DC,C\",C|3,0.00,1\n"
+            "datacenter,cluster,capacity_tb,vm_count,image_level_tb,agent_in_estimate_tb,excluded_non_vadp_tb\nDC-B,C2,10.26,5,10.26,0.00,0.00\nDC-A,C1,1.50,3,1.50,0.00,0.00\n\"DC,C\",C|3,0.00,1,0.00,0.00,0.00\n"
         );
     }
 
@@ -202,11 +242,14 @@ mod tests {
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(
             lines[0],
-            "| Datacenter | Cluster | Capacity (TB) | VM Count |"
+            "| Datacenter | Cluster | Capacity (TB) | VM Count | Image-level (TB) | Agent, in estimate (TB) | Not in estimate, non-VADP (TB) |"
         );
-        assert_eq!(lines[2], "| DC-B | C2 | 10.26 | 5 |");
-        assert_eq!(lines[4], "| DC,C | C\\|3 | 0.00 | 1 |");
-        assert_eq!(lines[5], "| **Total** | | **11.76** | **9** |");
+        assert_eq!(lines[2], "| DC-B | C2 | 10.26 | 5 | 10.26 | 0.00 | 0.00 |");
+        assert_eq!(lines[4], "| DC,C | C\\|3 | 0.00 | 1 | 0.00 | 0.00 | 0.00 |");
+        assert_eq!(
+            lines[5],
+            "| **Total** | | **11.76** | **9** | **11.76** | **0.00** | **0.00** |"
+        );
     }
 
     #[test]
@@ -256,7 +299,7 @@ mod tests {
     fn empty_input() {
         assert_eq!(
             render_csv(&[]).unwrap(),
-            "datacenter,cluster,capacity_tb,vm_count\n"
+            "datacenter,cluster,capacity_tb,vm_count,image_level_tb,agent_in_estimate_tb,excluded_non_vadp_tb\n"
         );
         assert!(render_md(&[]).contains("**0.00**"));
         let v: serde_json::Value = serde_json::from_str(&render_json(&[]).unwrap()).unwrap();

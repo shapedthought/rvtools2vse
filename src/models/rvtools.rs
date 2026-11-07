@@ -97,10 +97,14 @@ impl Vdisk {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct Datacenter {
     pub name: String,
     pub cluster: String,
     pub vm_count: usize,
     pub capacity: f64,
+    /// Part of `capacity` (TB) needing an agent or other method.
+    pub agent: f64,
+    /// Non-VADP disk capacity (TB) excluded from the estimate by policy.
+    pub excluded: f64,
 }

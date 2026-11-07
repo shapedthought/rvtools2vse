@@ -167,13 +167,21 @@ A disk can be both physical RDM and independent: **both** keep flags are needed 
 
 ## Backup coverage
 
-Every run with vDisk data ends with a coverage line on stderr, splitting the estimate into what image-level (VADP) backup can protect and what needs an agent or another method:
+Every run with vDisk data ends with a coverage block on stderr. It splits the estimate into what image-level (VADP) backup can protect and what needs an agent or another method, and always lists the non-VADP storage that the estimate leaves out, so nobody concludes everything is covered:
 
 ```text
-Coverage: 12.34 TB image-level (VADP); 1.20 TB needs an agent or other method (3 VM(s))
+Coverage:
+  In estimate, image-level (VADP): 12.34 TB
+  In estimate, needs agent or other method: 1.20 TB (3 VM(s))
+  Not in estimate, needs agent or other method: 4.50 TB provisioned (7 VM(s))
 ```
 
-A disk is **non-VADP** when it is a physical-compatibility RDM, an independent disk, a multi-writer disk, or sits on a shared SCSI bus. Excluded disks are not in the estimate at all; disks kept with `--keep-rdm` / `--keep-independent`, multi-writer disks and shared-bus disks count in the estimate but land in the non-VADP group. Each VM with non-VADP capacity gets a `needs_agent_or_other_method` exception, capped at the VM's estimate.
+A disk is **non-VADP** when it is a physical-compatibility RDM, an independent disk, a multi-writer disk, or sits on a shared SCSI bus.
+
+- **In estimate, needs agent or other method:** disks kept with `--keep-rdm` / `--keep-independent`, plus multi-writer and shared-bus disks that are not excluded. They count in sizing, capped at each VM's estimate, and each such VM gets a `needs_agent_or_other_method` exception.
+- **Not in estimate, needs agent or other method:** non-VADP disks dropped by the current flags (physical RDMs, independent disks, including multi-writer disks that are also independent). This is provisioned capacity, with shared storage counted once (by `Disk UUID`, then `Raw LUN ID` within the vCenter) and attributed to the first VM in name order. It is not part of the estimate and still needs protecting another way.
+
+The same split is added to the `--show-info` / `--summary-file` summary in every format, as columns after the existing ones: `Image-level (TB)`, `Agent, in estimate (TB)` and `Not in estimate, non-VADP (TB)` in the table and Markdown, and `image_level_tb`, `agent_in_estimate_tb` and `excluded_non_vadp_tb` in CSV and JSON (rows and totals). `Capacity (TB)` remains image-level plus agent-in-estimate. A cluster whose only storage is excluded appears as a row with zero VMs and zero capacity.
 
 Coverage checks:
 
@@ -217,8 +225,8 @@ Exception files use `vm_name,disk,reason,capacity_mib,action` (JSON is an array 
 | Format | Summary output |
 | --- | --- |
 | `table` | Box-drawn terminal table; the default on stdout. |
-| `csv` | Header `datacenter,cluster,capacity_tb,vm_count`, then one row per group. |
-| `json` | Object with `rows` (`datacenter`, `cluster`, `capacity_tb`, `vm_count`) and `totals` (`capacity_tb`, `vm_count`). |
+| `csv` | Header `datacenter,cluster,capacity_tb,vm_count,image_level_tb,agent_in_estimate_tb,excluded_non_vadp_tb`, then one row per group. |
+| `json` | Object with `rows` (`datacenter`, `cluster`, `capacity_tb`, `vm_count`, `image_level_tb`, `agent_in_estimate_tb`, `excluded_non_vadp_tb`) and `totals` (the same numeric fields). |
 | `md` | GitHub-flavoured Markdown table with a final **Total** row. |
 
 **Format selection:**

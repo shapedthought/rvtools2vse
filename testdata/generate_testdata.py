@@ -255,11 +255,13 @@ def build_coverage(path):
     clone-1/2:     cloned VMs with the same Disk UUID, sharingNone -> never merged.
     k8s-worker:    kubelet/sysroot mounts repeating its one disk -> not flagged.
     filer:         a 1000 GiB guest volume with no vDisk -> in-guest storage flagged.
+    ora-1/ora-2:   multi-writer disk that is ALSO independent -> excluded by default,
+                   reported once as non-VADP storage not in the estimate.
     vTools overrides vInfo Tools (all toolsOk): node-b toolsOld,
     notools toolsNotInstalled, stopped toolsNotRunning."""
     G = 1024
     vms = ["node-a", "node-b", "rac-1", "rac-2", "clone-1", "clone-2",
-           "k8s-worker", "filer", "notools", "stopped"]
+           "k8s-worker", "filer", "notools", "stopped", "ora-1", "ora-2"]
     wb = Workbook()
     info = wb.active
     info.title = "vInfo"
@@ -290,6 +292,10 @@ def build_coverage(path):
         d(vm, "Hard disk 2", 2001, "d-shared", 300 * G, sharing="sharingMultiWriter")
     for vm in ["clone-1", "clone-2"]:
         d(vm, "Hard disk 1", 2000, "d-clone", 150 * G)
+    for vm in ["ora-1", "ora-2"]:
+        d(vm, "Hard disk 1", 2000, f"d-{vm}", 100 * G)
+        d(vm, "Hard disk 2", 2001, "d-ora", 400 * G, mode="independent_persistent",
+          sharing="sharingMultiWriter")
     d("k8s-worker", "Hard disk 1", 2000, "d-k8s", 120 * G)
     d("filer", "Hard disk 1", 2000, "d-filer", 100 * G)
     d("notools", "Hard disk 1", 2000, "d-notools", 50 * G)
@@ -311,6 +317,8 @@ def build_coverage(path):
         p(vm, "2001", "/u01", 300 * G, 250 * G)
     for vm in ["clone-1", "clone-2"]:
         p(vm, "2000", "/", 150 * G, 100 * G)
+    for vm in ["ora-1", "ora-2"]:
+        p(vm, "2000", "/", 100 * G, 80 * G)
     p("k8s-worker", "2000", "/", 120 * G, 60 * G)
     p("k8s-worker", "2000", "/sysroot", 120 * G, 60 * G)
     for i in range(20):

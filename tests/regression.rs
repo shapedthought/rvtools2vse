@@ -46,7 +46,7 @@ fn baseline_csv_rows() {
     assert!(ok);
     assert_eq!(
         stdout,
-        "datacenter,cluster,capacity_tb,vm_count\nDC-A,CL2,2.00,1\nDC-A,CL1,1.00,2\nDC-B,CL3,0.75,1\n"
+        "datacenter,cluster,capacity_tb,vm_count,image_level_tb,agent_in_estimate_tb,excluded_non_vadp_tb\nDC-A,CL2,2.00,1,2.00,0.00,0.00\nDC-A,CL1,1.00,2,1.00,0.00,0.00\nDC-B,CL3,0.75,1,0.75,0.00,0.00\n"
     );
 }
 
@@ -621,7 +621,16 @@ fn backup_coverage_split_and_exceptions() {
     let (ok, _, stderr) = run(&["-r", COVERAGE, "--no-cache"]);
     assert!(ok, "{stderr}");
     assert!(
-        stderr.contains("Coverage: 1.72 TB image-level (VADP); 0.29 TB needs an agent or other method (1 VM(s))"),
+        stderr.contains("In estimate, image-level (VADP): 1.88 TB"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("In estimate, needs agent or other method: 0.29 TB (1 VM(s))"));
+    // Excluded non-VADP storage is still reported, shared storage counted once:
+    // the empty-UUID RDM (200 GiB, by LUN) + the multi-writer independent disk (400 GiB).
+    assert!(
+        stderr.contains(
+            "Not in estimate, needs agent or other method: 0.59 TB provisioned (2 VM(s))"
+        ),
         "{stderr}"
     );
     assert!(stderr.contains("1 disk on a shared SCSI bus"), "{stderr}");
@@ -635,9 +644,11 @@ fn backup_coverage_split_and_exceptions() {
     let (ok, _, stderr) = run(&["-r", COVERAGE, "--no-cache", "--keep-rdm", "--verbose"]);
     assert!(ok, "{stderr}");
     assert!(
-        stderr.contains("0.49 TB needs an agent or other method (2 VM(s))"),
+        stderr.contains("In estimate, needs agent or other method: 0.49 TB (2 VM(s))"),
         "{stderr}"
     );
+    assert!(stderr
+        .contains("Not in estimate, needs agent or other method: 0.39 TB provisioned (1 VM(s))"));
     assert_eq!(
         stderr.matches("shared_lun_group_1 (2 node(s))").count(),
         2,
@@ -652,7 +663,36 @@ fn backup_coverage_split_and_exceptions() {
     assert!(stderr.contains("node-b | * | vmware_tools (toolsOld)"));
 
     // Clones keep their own capacity: 10 VMs in the estimate.
-    assert_eq!(totals(&["-r", COVERAGE, "--no-cache"]).1, 10);
+    assert_eq!(totals(&["-r", COVERAGE, "--no-cache"]).1, 12);
+
+    // The same split is in the summary table, JSON and CSV (new columns last).
+    let (ok, stdout, _) = run(&["-r", COVERAGE, "--no-cache", "-s", "--format", "csv"]);
+    assert!(ok);
+    assert_eq!(
+        stdout,
+        "datacenter,cluster,capacity_tb,vm_count,image_level_tb,agent_in_estimate_tb,excluded_non_vadp_tb\nDC-T,CL-T,2.17,12,1.88,0.29,0.59\n"
+    );
+    let (ok, stdout, _) = run(&["-r", COVERAGE, "--no-cache", "-s", "--format", "json"]);
+    assert!(ok);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let ex = v["totals"]["excluded_non_vadp_tb"].as_f64().unwrap();
+    assert!((ex - 600.0 / 1024.0).abs() < 1e-9, "{ex}");
+    assert!(v["rows"][0]["agent_in_estimate_tb"].as_f64().unwrap() > 0.0);
+    // --flatten keeps the split.
+    let (ok, stdout, _) = run(&[
+        "-r",
+        COVERAGE,
+        "--no-cache",
+        "-s",
+        "--flatten",
+        "--format",
+        "csv",
+    ]);
+    assert!(ok);
+    assert!(
+        stdout.ends_with("DC1,Cluster1,2.17,12,1.88,0.29,0.59\n"),
+        "{stdout}"
+    );
 
     // A higher threshold silences the heuristic.
     let (ok, _, stderr) = run(&["-r", COVERAGE, "--no-cache", "--guest-gap-min-gib", "5000"]);

@@ -135,9 +135,13 @@ pub fn run() -> Result<()> {
     }
     disk::print_exceptions_stderr(&awareness, cli.verbose);
     if !disk_vec.is_empty() {
-        eprint!("{}", disk::coverage_summary(&awareness.combined));
+        eprint!(
+            "{}",
+            disk::coverage_summary(&awareness.combined, &awareness.excluded)
+        );
     }
     let mut combined = awareness.combined;
+    let excluded = awareness.excluded;
     if let Some(path) = &cli.exceptions_file {
         let fmt = summary::resolve_format(cli.format, Some(path.as_path()));
         let rendered = disk::render_exceptions(&awareness.exceptions, fmt)?;
@@ -156,9 +160,11 @@ pub fn run() -> Result<()> {
             .into_iter()
             .for_each(|(key, group)| {
                 let mut cap = 0.0;
+                let mut agent = 0.0;
                 let mut vm_count = 0;
                 group.for_each(|x| {
                     cap += x.capacity;
+                    agent += x.non_vadp_capacity;
                     vm_count += 1;
                 });
 
@@ -167,6 +173,8 @@ pub fn run() -> Result<()> {
                     cluster: format!("{key}_cluster"),
                     vm_count,
                     capacity: cap / devisor,
+                    agent: agent / devisor,
+                    excluded: 0.0,
                 })
             });
     } else {
@@ -177,9 +185,11 @@ pub fn run() -> Result<()> {
             .into_iter()
             .for_each(|(key, group)| {
                 let mut cap = 0.0;
+                let mut agent = 0.0;
                 let mut vm_count = 0;
                 group.for_each(|x| {
                     cap += x.capacity;
+                    agent += x.non_vadp_capacity;
                     vm_count += 1;
                 });
 
@@ -188,13 +198,41 @@ pub fn run() -> Result<()> {
                     cluster: key.1.to_string(),
                     vm_count,
                     capacity: cap / devisor,
+                    agent: agent / devisor,
+                    excluded: 0.0,
                 })
             });
+    }
+
+    // Excluded non-VADP storage joins its VM's row (a row with no VMs if the
+    // whole cluster was excluded), before flatten/site-map aggregation.
+    let by_site = cli.flatten_site && !cli.flatten && cli.dc_site_map.is_none();
+    for e in &excluded {
+        let cluster = if by_site {
+            format!("{}_cluster", e.datacenter)
+        } else {
+            e.cluster.clone()
+        };
+        let tb = e.capacity_mib / devisor;
+        match datacenters
+            .iter_mut()
+            .find(|d| d.name == e.datacenter && d.cluster == cluster)
+        {
+            Some(d) => d.excluded += tb,
+            None => datacenters.push(Datacenter {
+                name: e.datacenter.clone(),
+                cluster,
+                excluded: tb,
+                ..Default::default()
+            }),
+        }
     }
 
     if cli.flatten && !cli.flatten_site && cli.dc_site_map.is_none() {
         let vm_count: usize = datacenters.iter().map(|x| x.vm_count).sum();
         let capacity: f64 = datacenters.iter().map(|x| x.capacity).sum();
+        let agent: f64 = datacenters.iter().map(|x| x.agent).sum();
+        let excluded: f64 = datacenters.iter().map(|x| x.excluded).sum();
 
         datacenters = vec![];
 
@@ -203,6 +241,8 @@ pub fn run() -> Result<()> {
             cluster: "Cluster1".to_string(),
             vm_count,
             capacity,
+            agent,
+            excluded,
         })
     }
 
@@ -213,9 +253,15 @@ pub fn run() -> Result<()> {
         let mut temp_dc: Vec<Datacenter> = Vec::new();
         dc_map.iter().for_each(|map_item| {
             let mut cap = 0.0;
+            let mut agent = 0.0;
+            let mut excluded = 0.0;
             let mut vm_count = 0;
 
             map_item.dc_names.iter().for_each(|site| {
+                for x in datacenters.iter().filter(|x| x.name.contains(site)) {
+                    agent += x.agent;
+                    excluded += x.excluded;
+                }
                 let dc_cap: f64 = datacenters
                     .iter()
                     .filter(|x| x.name.contains(site))
@@ -235,6 +281,8 @@ pub fn run() -> Result<()> {
                 cluster: format!("{}_cluster", map_item.group_name),
                 vm_count,
                 capacity: cap,
+                agent,
+                excluded,
             })
         });
 

@@ -24,8 +24,18 @@ pub struct Exception {
 #[derive(Debug, Clone)]
 pub struct DiskAwarenessResult {
     pub combined: Vec<Vinfo>,
+    /// Non-VADP disks left out of the estimate by policy, shared storage once.
+    pub excluded: Vec<ExcludedDisk>,
     pub exceptions: Vec<Exception>,
     pub impacts: Vec<FlagImpact>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExcludedDisk {
+    pub vm_key: String,
+    pub datacenter: String,
+    pub cluster: String,
+    pub capacity_mib: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -187,6 +197,27 @@ fn apply_inner(
                         .or_insert_with(|| (info.vm_key.clone(), info.vm_name.clone()));
                 }
             }
+        }
+    }
+
+    // Excluded non-VADP storage, shared disks once (UUID, then LUN per vCenter),
+    // attributed to the first VM in name order.
+    let mut excluded = Vec::new();
+    let mut excluded_seen = HashSet::new();
+    for info in &vm_order {
+        for d in disks_by_vm.get(info.vm_key.as_str()).into_iter().flatten() {
+            if !is_excluded(d, opts) {
+                continue;
+            }
+            if d.dedupes() && !excluded_seen.insert(d.share_key()) {
+                continue;
+            }
+            excluded.push(ExcludedDisk {
+                vm_key: info.vm_key.clone(),
+                datacenter: info.datacenter.clone(),
+                cluster: info.cluster.clone(),
+                capacity_mib: d.capacity,
+            });
         }
     }
 
@@ -446,6 +477,7 @@ fn apply_inner(
 
     DiskAwarenessResult {
         combined,
+        excluded,
         exceptions,
         impacts: Vec::new(),
     }
@@ -550,14 +582,22 @@ pub fn tools_exceptions(vms: &[Vinfo]) -> Vec<Exception> {
 }
 
 /// One-line image-level vs agent/other split of the estimate.
-pub fn coverage_summary(vms: &[Vinfo]) -> String {
-    let total: f64 = vms.iter().map(|v| v.capacity).sum();
-    let non: f64 = vms.iter().map(|v| v.non_vadp_capacity).sum();
+pub fn coverage_summary(vms: &[Vinfo], excluded: &[ExcludedDisk]) -> String {
+    let total = vms.iter().fold(0.0, |a, v| a + v.capacity);
+    let non = vms.iter().fold(0.0, |a, v| a + v.non_vadp_capacity);
     let n = vms.iter().filter(|v| v.non_vadp_capacity > 0.0).count();
+    let ex = excluded.iter().fold(0.0, |a, e| a + e.capacity_mib);
+    let ex_vms = excluded
+        .iter()
+        .map(|e| e.vm_key.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+    let tb = 1048576.0;
     format!(
-        "Coverage: {:.2} TB image-level (VADP); {:.2} TB needs an agent or other method ({n} VM(s))\n",
-        (total - non) / 1048576.0,
-        non / 1048576.0
+        "Coverage:\n  In estimate, image-level (VADP): {:.2} TB\n  In estimate, needs agent or other method: {:.2} TB ({n} VM(s))\n  Not in estimate, needs agent or other method: {:.2} TB provisioned ({ex_vms} VM(s))\n",
+        (total - non) / tb,
+        non / tb,
+        ex / tb
     )
 }
 
@@ -1243,7 +1283,7 @@ mod tests {
         let r = apply(&vms, &[], &disks, opts(false, true));
         let non: f64 = r.combined.iter().map(|v| v.non_vadp_capacity).sum();
         assert_eq!(non, 3072.0, "independent + multi-writer counted once");
-        assert!(coverage_summary(&r.combined).contains("needs an agent"));
+        assert!(coverage_summary(&r.combined, &r.excluded).contains("needs agent or other method"));
         assert!(r
             .exceptions
             .iter()
@@ -1320,5 +1360,50 @@ mod tests {
             buckets,
             ["tools_old", "tools_not_installed", "tools_not_running"]
         );
+    }
+
+    #[test]
+    fn excluded_multiwriter_independent_counted_once_and_reported() {
+        let vms = [info("rac-a", 8192.0), info("rac-b", 8192.0)];
+        let mut disks = vec![
+            disk_base("rac-a", 1024.0, "Hard disk 1"),
+            disk_base("rac-b", 1024.0, "Hard disk 1"),
+        ];
+        for vm in ["rac-a", "rac-b"] {
+            let mut d = disk_base(vm, 4096.0, "Hard disk 2");
+            d.disk_uuid = "mw-ind".into();
+            d.sharing = "sharingMultiWriter".into();
+            d.is_shared = true;
+            d.disk_mode = "independent_persistent".into();
+            d.is_independent = true;
+            disks.push(d);
+        }
+        // An empty-UUID physical RDM shared by LUN is also counted once.
+        for vm in ["rac-a", "rac-b"] {
+            let mut d = disk_base(vm, 2048.0, "Hard disk 3");
+            d.raw_comp_mode = "physicalMode".into();
+            d.is_physical_rdm = true;
+            d.shared_bus = "physicalSharing".into();
+            d.is_shared_bus = true;
+            d.raw_lun_id = "lun-9".into();
+            d.vi_sdk = "vc1".into();
+            disks.push(d);
+        }
+        let guest = [part("rac-a", 900.0), part("rac-b", 900.0)];
+        let r = apply(&vms, &guest, &disks, opts(false, false));
+        let ex: f64 = r.excluded.iter().map(|e| e.capacity_mib).sum();
+        assert_eq!(ex, 6144.0);
+        assert!(r.excluded.iter().all(|e| e.vm_key == "rac-a"));
+        assert!(r.combined.iter().all(|v| v.non_vadp_capacity == 0.0));
+        let line = coverage_summary(&r.combined, &r.excluded);
+        assert!(
+            line.contains(
+                "Not in estimate, needs agent or other method: 0.01 TB provisioned (1 VM(s))"
+            ),
+            "{line}"
+        );
+        // Keeping both moves the storage into the estimate; nothing is left excluded.
+        let r = apply(&vms, &guest, &disks, opts(true, true));
+        assert!(r.excluded.is_empty());
     }
 }
