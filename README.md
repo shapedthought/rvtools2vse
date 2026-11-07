@@ -8,7 +8,7 @@ rvsum reads the `vInfo`, optional `vPartition` and optional `vDisk` sheets in [R
 - Several files or folders in one run, with optional recursive discovery.
 - Powered-off VM and name filters, site roll-ups, and VADP-oriented disk diagnostics.
 
-[Install](#install) · [Quick start](#quick-start) · [Capacity rules](#how-capacity-is-calculated) · [Outputs](#output-formats) · [Podman](#podman-workflow) · [Flags](#full-flag-reference) · [Migration](#migrating-from-rvtools2vse)
+[Install](#install) · [Quick start](#quick-start) · [Capacity rules](#how-capacity-is-calculated) · [Why disks are excluded](#why-some-disks-are-excluded-in-plain-english) · [Outputs](#output-formats) · [Podman](#podman-workflow) · [Flags](#full-flag-reference) · [Migration](#migrating-from-rvtools2vse)
 
 > This is an **estimate of source data**, not a backup repository sizing calculator or a guarantee of backup support. It does not model retention, change rate, compression or deduplication for backup storage. Review the [capacity rules](#how-capacity-is-calculated) and [limitations](#known-limitations) before using the totals.
 
@@ -167,6 +167,8 @@ A disk can be both physical RDM and independent: **both** keep flags are needed 
 
 ## Backup coverage
 
+For a plain-language explanation of each case, see [why some disks are excluded](#why-some-disks-are-excluded-in-plain-english).
+
 Every run with vDisk data ends with a coverage block on stderr. It splits the estimate into what image-level (VADP) backup can protect and what needs an agent or another method, and always lists the non-VADP storage that the estimate leaves out, so nobody concludes everything is covered:
 
 ```text
@@ -195,7 +197,99 @@ Coverage checks:
 
 Cloned VMs that share a `Disk UUID` without multi-writer or bus sharing are kept separate; only real shared storage is de-duplicated.
 
+## Why some disks are excluded (in plain English)
+
+This section explains the [disk policy](#disk-policy-and-vmware-tools) and [coverage checks](#backup-coverage) without assuming VMware storage or Veeam knowledge.
+
+**How image-level backup works.** An image-level backup tool such as Veeam does not log in to each VM. It asks vSphere to take a **snapshot** of the VM, then copies the VM's virtual disks through VMware's backup interface (**VADP**), and finally deletes the snapshot. Anything that vSphere cannot include in a snapshot is simply not captured, so rvsum either leaves it out of the estimate or flags it as needing another method.
+
+### Independent disks (persistent and non-persistent)
+
+- **What it is:** a virtual disk set to "independent" mode, which tells vSphere to leave it out of snapshots. *Persistent* keeps its changes; *non-persistent* throws them away when the VM powers off.
+- **Why it matters:** snapshots skip the disk, so an image-level backup never copies it.
+- **What rvsum does:** excludes it from the estimate by default and reports it as `independent_disk`. It is listed under *Not in estimate, needs agent or other method*.
+- **What to do instead:** back up the data with an in-guest agent, or ask the customer to switch the disk to normal (dependent) mode. Non-persistent disks often hold scratch data that needs no backup at all.
+- **Flag:** `--keep-independent` adds the capacity to the estimate, under *In estimate, needs agent or other method*. It does not make the disk snapshot-capable.
+
+### Raw device mappings (RDMs)
+
+An RDM lets a VM use a storage LUN (a volume on the storage array) directly instead of a normal virtual disk file. There are two kinds:
+
+- **Physical mode (`physicalMode`):** the VM talks straight to the array, so vSphere **cannot** snapshot it and VADP cannot back it up. rvsum excludes it by default and reports `physical_rdm`. Protect it with an in-guest agent, storage-array snapshots or the application's own backup. `--keep-rdm` adds it to the estimate as needing an agent.
+- **Virtual mode (`virtualMode`):** vSphere handles it much like a normal virtual disk, so it **can** be snapshotted and backed up through VADP. rvsum keeps it in the image-level estimate and does not flag it, **unless** it is also independent, in which case the independent-disk rules above apply.
+
+A disk that is both a physical RDM and independent needs **both** `--keep-rdm` and `--keep-independent` to be counted.
+
+### Multi-writer shared disks (Oracle RAC and similar)
+
+- **What it is:** one disk attached to several VMs at once, all of which can write to it (`Sharing` = `sharingMultiWriter`). Clustered databases such as Oracle RAC use this.
+- **Why it matters:** vSphere cannot snapshot a VM with a multi-writer disk, so image-level backup does not work for that disk.
+- **What rvsum does:** keeps it in the estimate (counted once, see [below](#shared-disks-and-duplicates)) and places it under *In estimate, needs agent or other method*, with a `needs_agent_or_other_method` exception for the VM. If the disk is also independent it is excluded instead, and appears under *Not in estimate*.
+- **What to do instead:** application-native backup (for example Oracle RMAN), usually through an agent or plug-in, or storage snapshots.
+- **Flag:** none specific; `--keep-independent` applies when it is also independent.
+
+### Shared SCSI bus (Windows failover clusters)
+
+- **What it is:** a virtual SCSI controller set to share its whole bus with other VMs (`Shared Bus` = `physicalSharing` or `virtualSharing`). This is the classic set-up for Windows Server Failover Clustering (**WSFC**), often together with physical RDMs.
+- **Why it matters:** VMs with bus sharing cannot be snapshotted, so VADP cannot back up any disk on that controller.
+- **What rvsum does:** counts the shared storage once and reports `shared_scsi_bus` for every disk, with a `shared_lun_group_N` name so you can see which cluster nodes share it. These disks are under *In estimate, needs agent or other method*, unless they are also physical RDMs or independent, in which case they are excluded. An empty `Shared Bus` cell is treated as unknown, not shared.
+- **What to do instead:** an in-guest agent that understands failover clusters.
+
+### In-guest iSCSI, NFS or SMB volumes (a heuristic)
+
+- **What it is:** storage the guest operating system connects to itself over the network, for example an iSCSI LUN or an NFS share. vSphere does not know about it, so it is not a virtual disk.
+- **Why it matters:** VADP only copies virtual disks, so this data is never in an image-level backup.
+- **What rvsum does:** RVTools cannot show this storage directly. rvsum compares the file systems the guest reports (vPartition) with the VM's virtual disks (vDisk), and flags `possible_in_guest_storage` when the guest sees noticeably more, by default over 10% **and** over 50 GiB. Container mounts and repeated views of the same file system are ignored. It does not change the estimate.
+- **What to do instead:** confirm with the customer, then protect the volume with an agent or on the storage system that serves it.
+- **Flags:** `--guest-gap-threshold` and `--guest-gap-min-gib` tune the sensitivity. Treat a flag as a question to ask, not a fact.
+
+### VMware Tools missing, not running or old
+
+- **What it is:** VMware Tools is a small helper installed inside the guest.
+- **Why it matters:** it does **not** stop the image backup itself. It does affect *application-aware processing* (getting databases such as SQL Server into a consistent state before the snapshot) and *guest file indexing*. Old Tools can also break quiescing.
+- **What rvsum does:** reports `vmware_tools` exceptions for `toolsNotInstalled`, `toolsNotRunning` (powered-on VMs only) and `toolsOld`. Separately, for `toolsNotInstalled` and `toolsNotRunning`, rvsum does not trust the guest's partition data and sizes the VM from vInfo instead. These VMs stay in the estimate.
+- **What to do instead:** install or update Tools before relying on application-consistent backups.
+
+### Powered-off VMs and templates
+
+Powered-off VMs are left out of the estimate and VM count by default, because they are often retired or spare. Use `-i` to include them. rvsum has no special handling for templates: they are normally powered off, so they are excluded by default and included with `-i` like any other powered-off VM.
+
+### Shared disks and duplicates
+
+A shared disk shows up once for every VM it is attached to. To avoid counting it several times, rvsum counts its capacity **once**, against the first VM in name order, identified by `Disk UUID` (or by `Raw LUN ID` within the vCenter for physical RDMs, or by disk label plus size if neither is available). This also works across files, so a disk seen from two exports is counted once. Cloned VMs that happen to keep the same `Disk UUID`, without any sharing set, are treated as separate disks. A VM whose disks are all owned by another VM stays in the VM count with zero capacity.
+
+### Worked example: reading the Coverage lines
+
+With invented numbers:
+
+```text
+Coverage:
+  In estimate, image-level (VADP): 80.00 TB
+  In estimate, needs agent or other method: 5.00 TB (4 VM(s))
+  Not in estimate, needs agent or other method: 12.00 TB provisioned (6 VM(s))
+```
+
+- **80 TB** is used data on normal disks that image-level backup can protect.
+- **5 TB** is also in the estimate, but sits on four VMs with multi-writer or shared-bus disks (or disks kept with `--keep-rdm` / `--keep-independent`). It needs an agent, application-native backup or storage snapshots. The estimate total is 80 + 5 = 85 TB.
+- **12 TB** is **not** in the 85 TB. It is the *provisioned* size of independent disks and physical RDMs on six VMs. Provisioned is the disk's full size, not just the used part, so the real data is usually smaller; but it still needs protecting another way. Rerun with the keep flags to see how much used capacity it adds.
+
+### Glossary
+
+| Term | Meaning |
+| --- | --- |
+| VADP | vSphere Storage APIs for Data Protection: VMware's interface for backup tools to read VM disks from a snapshot. |
+| Snapshot | A point-in-time freeze of a VM's disks, which the backup copies from. |
+| RDM | Raw device mapping: a VM using a storage-array LUN directly instead of a virtual disk file. |
+| LUN | Logical unit number: a volume presented by a storage array. |
+| Multi-writer | A sharing mode that lets several VMs write to the same disk at once, used by clusters such as Oracle RAC. |
+| WSFC | Windows Server Failover Clustering, which usually needs a shared SCSI bus and shared disks. |
+| vPartition | The RVTools tab listing the file systems the guest reports, with their used space (needs VMware Tools). |
+| CBT | Changed Block Tracking: vSphere records which blocks changed so incremental backups copy only those. It also depends on snapshots, so it does not help with the disks above. |
+
 ## Exceptions: summary, verbose and files
+
+New to these terms? See [why some disks are excluded](#why-some-disks-are-excluded-in-plain-english).
+
 
 By default, stderr shows **counts by reason**, not thousands of individual rows. For disk categories it distinguishes **kept** from **excluded**, counts unique disk identities across the inputs, and gives attachment counts and **provisioned** TB. Categories overlap: for example a shared independent disk appears in both. Those sizes are **not additive and are not changes to the estimate**.
 
