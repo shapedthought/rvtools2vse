@@ -7,11 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Automatic compact binary parse cache for the used vInfo, vPartition and vDisk columns, including UUIDs. Sidecar files fall back to the OS cache directory for read-only exports; cache failures never prevent normal parsing.
+- `--no-cache` bypasses reads and writes; `--refresh-cache` rebuilds. `--verbose` reports cache activity; normal output stays unchanged. Cache keys validate source path, size, mtime, schema and application version; damaged entries are rebuilt.
+- Cache regressions cover output equivalence, option-independent rows, changed inputs, corrupt/versioned entries, read-only fallback and disabled caching. README documents inventory-data privacy, container persistence and a small-fixture timing comparison.
+
+- `duplicate_vm_name` exception category, shown in the compact summary, `--verbose` output and exception files, with actions distinguishing UUID-separated VMs, overlapping exports and ambiguous name-only joins.
+
 ### Changed
 - vInfo, vPartition and vDisk are now joined per input file by **VM Instance UUID**, then **VM UUID**, then VM name for older exports without UUID columns. Same-named VMs (for example across vCenters or files) are no longer merged, and partitions/disks from one file no longer attach to a same-named VM in another file. Totals can change for inventories with duplicate VM names. Shared-disk deduplication by `Disk UUID` still spans all files.
 
-### Added
-- `duplicate_vm_name` exception category, shown in the compact summary, `--verbose` output and exception files, with actions distinguishing UUID-separated VMs, overlapping exports and ambiguous name-only joins.
 
 ### Fixed
 - `--anonymize` now applies include/exclude filters and `--dc-site-map` entries to the real names before hashing, so filters and site maps work with anonymization.

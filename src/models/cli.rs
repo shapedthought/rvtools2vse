@@ -124,7 +124,16 @@ pub struct Cli {
     #[clap(long, value_parser)]
     pub exceptions_file: Option<PathBuf>,
 
+    /// Bypass reading and writing the parsed workbook cache
+    #[clap(long, action, conflicts_with = "refresh_cache")]
+    pub no_cache: bool,
+
+    /// Rebuild the parsed workbook cache instead of reusing it
+    #[clap(long, action)]
+    pub refresh_cache: bool,
+
     /// Print the full disk-awareness exceptions list to stderr (default is a compact summary).
+    /// Also report parsed workbook cache activity.
     /// Note: short `-v` is already `--vm-table-print`.
     #[clap(long, action, default_value_t = false)]
     pub verbose: bool,

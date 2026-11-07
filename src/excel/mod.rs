@@ -1,5 +1,7 @@
 use crate::{helpers, models::errors::MyError};
-use calamine::{open_workbook, Data, Range, Reader, Xlsx, XlsxError};
+use calamine::{Data, Range, XlsxError};
+
+mod cache;
 use helpers::{
     as_display_string, is_independent_disk_mode, is_physical_rdm_mode, is_shared_disk_mode,
     ColPosition, GetFloat, GetString,
@@ -14,24 +16,18 @@ use crate::models::{
 type ExcelSheets = (Vec<Vinfo>, Vec<Vpartition>, Vec<Vdisk>);
 
 pub fn get_excel(cli: &Cli) -> Result<ExcelSheets, MyError> {
-    let mut excel_vec: Vec<Xlsx<_>> = Vec::new();
-
     if cli.rvtools_files.is_empty() {
         return Err(MyError::RvtoolsError(
             "No RVTools file or files specified".to_string(),
         ));
     }
 
-    for file in &cli.rvtools_files {
-        let new_excel: Xlsx<_> = open_workbook(file)?;
-        excel_vec.push(new_excel);
-    }
-
     let mut info_vec: Vec<Vinfo> = Vec::new();
     let mut part_vec: Vec<Vpartition> = Vec::new();
     let mut disk_vec: Vec<Vdisk> = Vec::new();
 
-    for (i, mut excel) in excel_vec.into_iter().enumerate() {
+    for (i, file) in cli.rvtools_files.iter().enumerate() {
+        let mut excel = cache::load(file, cli.no_cache, cli.refresh_cache, cli.verbose)?;
         let workbook = match excel.worksheet_range("vInfo") {
             Ok(range) => range,
             Err(XlsxError::WorksheetNotFound(_)) => {
